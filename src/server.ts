@@ -13,6 +13,8 @@ import { openai } from "@ai-sdk/openai";
 import { processToolCalls } from "./utils";
 import { tools, executions } from "./tools";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { fiberplane } from "@fiberplane/agents";
+
 // import { env } from "cloudflare:workers";
 
 const model = openai("gpt-4o-2024-11-20");
@@ -24,6 +26,9 @@ const model = openai("gpt-4o-2024-11-20");
 
 // we use ALS to expose the agent context to the tools
 export const agentContext = new AsyncLocalStorage<Chat>();
+
+export { FpChatAgent } from "./agents-server";
+
 /**
  * Chat Agent implementation that handles real-time AI chat interactions
  */
@@ -91,7 +96,8 @@ If the user asks to schedule a task, use the schedule tool to schedule the task.
  * Worker entry point that routes incoming requests to the appropriate handler
  */
 export default {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  // @ts-ignore - huh?
+  fetch: fiberplane<Env>(async (request: Request, env: Env, ctx: ExecutionContext) => {
     if (!process.env.OPENAI_API_KEY) {
       console.error(
         "OPENAI_API_KEY is not set, don't forget to set it locally in .dev.vars, and use `wrangler secret bulk .dev.vars` to upload it to production"
@@ -103,5 +109,5 @@ export default {
       (await routeAgentRequest(request, env)) ||
       new Response("Not found", { status: 404 })
     );
-  },
+  }),
 } satisfies ExportedHandler<Env>;

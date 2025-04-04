@@ -19,14 +19,19 @@
 			{
 				"name": "Chat",
 				"class_name": "Chat"
-			}
+			},
+      {
+        "name": "FpChatAgent",
+        "class_name": "FpChatAgent"
+      }
 		]
 	},
 	"migrations": [
 		{
 			"tag": "v1",
 			"new_sqlite_classes": [
-				"Chat"
+				"Chat",
+        "FpChatAgent"
 			]
 		}
 	],
