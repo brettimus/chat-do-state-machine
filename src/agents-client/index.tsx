@@ -1,9 +1,12 @@
 import { useAgent } from "agents/react";
+import { useMachine, useSelector } from "@xstate/react";
 import { Button } from "@/components/button/Button";
 import { cn } from "@/lib/utils";
 import { useState, useCallback } from "react";
 import type { AgentEvent, EventType, Message } from "./types";
-import { USER_MESSAGE, ASSISTANT_MESSAGE } from "./events";
+import { USER_MESSAGE, ASSISTANT_MESSAGE, CHAT_STATE_UPDATE } from "./events";
+import { uiChatMachine } from "./machine";
+import { StreamingMessage } from "./StreamingMessage";
 
 // Helper functions
 const createMessageId = () => `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -28,11 +31,26 @@ export function FpChatAgentInterface() {
   const [inputValue, setInputValue] = useState("");
   const [chatId] = useState(`chat-${Date.now()}`);
 
+  const [uiChatMachineState, send, uiChatMachineRef] = useMachine(uiChatMachine);
+
+  const isStreaming = useSelector(uiChatMachineRef, (refState) => {
+    console.log("isStreaming", refState.matches("StreamingResponse"));
+    return refState.matches("StreamingResponse");
+  });
+
+  const chunksToDisplay = useSelector(uiChatMachineRef, (refState) => {
+    if (refState.matches("StreamingResponse")) {
+      return refState.context?.chunks?.join("") || "";
+    }
+    return null;
+  });
+
+
   // Message handler for different message types
   const handleAgentMessage = useCallback((data: AgentEvent, lastMessageId: string | null) => {
-    switch(data.type) {
-      case "user.message":
-      case "assistant.message": {
+    switch(data?.type) {
+      case USER_MESSAGE:
+      case ASSISTANT_MESSAGE: {
         const newMessage = createMessage(
           data.content,
           "assistant",
@@ -42,10 +60,24 @@ export function FpChatAgentInterface() {
         setMessages(prev => [...prev, newMessage]);
         break;
       }
+      case CHAT_STATE_UPDATE: {
+        const { state, context } = data;
+        console.log("Chat state update:", state, context);
+        // HACK - Type coercion
+        const serverMachineContext = context as unknown as Record<string, unknown>;
+        send({ type: "chat.state.update", state, context: serverMachineContext });
+        break;
+      }
+      case "chunk": {
+        const { content } = data;
+        console.log("Chunk:", content);
+        send({ type: "chunk", content });
+        break;
+      }
       default:
-        console.log("Unknown message type:", data.type);
+        console.log("Unknown message:", data);
     }
-  }, [chatId]);
+  }, [chatId, send]);
 
   // Sending a message to the agent
   const sendAgentMessage = useCallback((content: string, messageType: EventType) => {
@@ -132,29 +164,33 @@ export function FpChatAgentInterface() {
             </p>
           </div>
         ) : (
-          messages.map((msg) => (
-            <div 
-              key={msg.id}
-              className={cn(
-                "p-3 rounded-lg max-w-[85%]",
-                "border border-zinc-100 dark:border-zinc-800",
-                "transition-all",
-                msg.sender === "user" 
-                  ? "ml-auto bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200" 
-                  : "mr-auto bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
-              )}
-            >
-              <div className="flex items-center gap-2 mb-1">
-                <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
-                  {msg.sender === "user" ? "You" : "Assistant"}
-                </span>
-                <span className="text-xs text-zinc-400 dark:text-zinc-500">
-                  {msg.created_at.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                </span>
+          <>
+            {messages.map((msg) => (
+              <div 
+                key={msg.id}
+                className={cn(
+                  "p-3 rounded-lg max-w-[85%]",
+                  "border border-zinc-100 dark:border-zinc-800",
+                  "transition-all",
+                  msg.sender === "user" 
+                    ? "ml-auto bg-zinc-100 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200" 
+                    : "mr-auto bg-white dark:bg-zinc-900 text-zinc-700 dark:text-zinc-300"
+                )}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                    {msg.sender === "user" ? "You" : "Assistant"}
+                  </span>
+                  <span className="text-xs text-zinc-400 dark:text-zinc-500">
+                    {msg.created_at.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                  </span>
+                </div>
+                <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
               </div>
-              <p className="whitespace-pre-wrap text-sm leading-relaxed">{msg.content}</p>
-            </div>
-          ))
+            ))}
+            {isStreaming && <p>Streaming...</p>}
+            {chunksToDisplay && <StreamingMessage message={chunksToDisplay} />}
+          </>
         )}
       </div>
       

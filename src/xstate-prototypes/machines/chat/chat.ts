@@ -115,14 +115,17 @@ const chatMachine = setup({
           description: "The user has sent a message to the chat agent",
           target: "Routing",
           // Update the internal messages state
-          actions: {
-            type: "addUserMessage",
-            params: ({ event }) => {
-              return {
-                prompt: event.prompt,
-              };
-            },
-          },
+          actions: [
+            ({ event }) => console.log("AwaitingUserInput got event:", event),
+            {
+              type: "addUserMessage",
+              params: ({ event }) => {
+                return {
+                  prompt: event.prompt,
+                };
+              },
+            }
+          ],
         },
       },
     },
