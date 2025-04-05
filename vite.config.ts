@@ -5,7 +5,7 @@ import react from "@vitejs/plugin-react";
 import { cloudflare } from "@cloudflare/vite-plugin";
 import tailwindcss from "@tailwindcss/vite";
 
-// NOTE - We need this plugin to handle the raw SQL files with vite
+// NOTE - We need this plugin to handle the raw SQL files of our migrations with vite
 const handleSql: Plugin = {
   name: 'handle-sql-files',
   transform(code, id) {
@@ -30,11 +30,6 @@ const handleSql: Plugin = {
 
 export default defineConfig({
   plugins: [handleSql, cloudflare(), react(), tailwindcss()],
-  build: {
-    rollupOptions: {
-      plugins: [handleSql]
-    }
-  },
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),

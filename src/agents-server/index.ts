@@ -1,8 +1,8 @@
 import { Agent, type AgentContext, type Connection } from "agents";
 import { drizzle, type DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
 import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
+// @ts-expect-error - TODO: Add drizzle to the typescript src path
 import migrations from '../../drizzle/migrations.js';
-
 // import { Fiber } from "@fiberplane/agents";
 import { createChatActor, type ChatMachineStateChangeHandlerPayload, type ChatMachineStateName } from "./machine-adapter";
 import type { ActorRefFrom } from "xstate";
@@ -20,13 +20,14 @@ type OutgoingMessage =
   | { type: "chat.state.update", state: ChatMachineStateName, context: ChatMachineStateChangeHandlerPayload };
 
 
+
 // NOTE - [BUG] Adding the `@Fiber()` decorator will reorder the `super` call, and break initialization,
 //              since super needs to be called before `this` is accessed
 //
-//        Error:  `Must call super constructor in derived class before accessing 'this' or returning from derived constructor`
+//       ReferenceError:  `Must call super constructor in derived class before accessing 'this' or returning from derived constructor`
 //
 // @Fiber()
-export class FpChatAgent extends Agent<CloudflareEnv> {
+class FpChatAgent extends Agent<CloudflareEnv> {
   storage: DurableObjectStorage;
   // biome-ignore lint/suspicious/noExplicitAny: just following the drizzle docs man
   db: DrizzleSqliteDODatabase<any>;
@@ -120,3 +121,5 @@ export class FpChatAgent extends Agent<CloudflareEnv> {
 
   // TODO - implement destroy and call parent method as well
 }
+
+export { FpChatAgent }
