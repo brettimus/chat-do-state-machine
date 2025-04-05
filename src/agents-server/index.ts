@@ -1,4 +1,8 @@
 import { Agent, type AgentContext, type Connection } from "agents";
+import { drizzle, type DrizzleSqliteDODatabase } from 'drizzle-orm/durable-sqlite';
+import { migrate } from 'drizzle-orm/durable-sqlite/migrator';
+import migrations from '../../drizzle/migrations.js';
+
 // import { Fiber } from "@fiberplane/agents";
 import { createChatActor, type ChatMachineStateChangeHandlerPayload, type ChatMachineStateName } from "./machine-adapter";
 import type { ActorRefFrom } from "xstate";
@@ -23,10 +27,24 @@ type OutgoingMessage =
 //
 // @Fiber()
 export class FpChatAgent extends Agent<CloudflareEnv> {
+  storage: DurableObjectStorage;
+  // biome-ignore lint/suspicious/noExplicitAny: just following the drizzle docs man
+  db: DrizzleSqliteDODatabase<any>;
+
   private actor: ActorRefFrom<typeof chatMachine>;
 
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
+
+    this.storage = ctx.storage;
+    this.db = drizzle(this.storage, { logger: false });
+
+    // Make sure all migrations complete before accepting queries.
+    // Otherwise you will need to run `this.migrate()` in any function
+    // that accesses the Drizzle database `this.db`.
+    ctx.blockConcurrencyWhile(async () => {
+      await this._migrate();
+    });
 
     // TODO - Rehydrate actor state from DB, if it exists
     const chat = createChatActor(env.OPENAI_API_KEY, (state, context) => {
@@ -42,6 +60,9 @@ export class FpChatAgent extends Agent<CloudflareEnv> {
     this.actor.start();
   }
 
+  async _migrate() {
+    migrate(this.db, migrations);
+  }
 
   async chunkBroadcaster(chunks: string[]) {
     this.broadcast(JSON.stringify({

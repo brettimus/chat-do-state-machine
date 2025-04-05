@@ -35,6 +35,14 @@
 			]
 		}
 	],
+  "rules": [
+    // We need these rules so we can import Drizzle migrations
+    {
+      "type": "Text",
+      "globs": ["**/*.sql"],
+      "fallthrough": true
+    }
+  ],
 	"observability": {
 		"enabled": true
 	}

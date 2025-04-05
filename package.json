@@ -5,6 +5,7 @@
   "type": "module",
   "private": true,
   "scripts": {
+    "db:generate": "drizzle-kit generate",
     "start": "vite dev",
     "dev": "npm run start",
     "deploy": "vite build && wrangler deploy",
@@ -30,6 +31,7 @@
     "@types/react": "^19.0.12",
     "@types/react-dom": "^19.0.4",
     "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^16.4.7",
     "prettier": "^3.5.3",
     "tailwindcss": "^4.0.17",
     "typescript": "^5.8.2",
