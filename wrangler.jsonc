@@ -17,10 +17,6 @@
   "durable_objects": {
     "bindings": [
       {
-        "name": "Chat",
-        "class_name": "Chat",
-      },
-      {
         "name": "FpChatAgent",
         "class_name": "FpChatAgent",
       },
@@ -29,7 +25,7 @@
   "migrations": [
     {
       "tag": "v1",
-      "new_sqlite_classes": ["Chat", "FpChatAgent"],
+      "new_sqlite_classes": ["FpChatAgent"],
     },
   ],
   // Normally, we need these rules so we can import Drizzle migrations
