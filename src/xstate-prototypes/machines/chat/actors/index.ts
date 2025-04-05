@@ -5,6 +5,5 @@ export {
   type RouterResponse,
   type RouterResponseType,
 } from "./router";
-export { saveSpecToDiskActor } from "./save-spec-to-disk";
-export { saveSpecToApiActor } from "./save-spec-to-api";
+export { saveSpecNoopActor } from "./save-spec-noop";
 export { askNextQuestionActor } from "./ask-next-question";

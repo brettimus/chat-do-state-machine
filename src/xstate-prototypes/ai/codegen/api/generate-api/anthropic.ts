@@ -10,7 +10,7 @@ function getSystemPrompt(
   dbSchema: string,
   templateExample: string,
   drizzleOrmExamples: string,
-  commonHonoMistakes: string,
+  commonHonoMistakes: string
 ) {
   return `
 You are a friendly, expert full-stack typescript engineer and an API building assistant for apps that use Hono,

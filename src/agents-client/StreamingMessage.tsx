@@ -1,8 +1,4 @@
-export function StreamingMessage({
-  message,
-}: { 
-  message: string
-}) {
+export function StreamingMessage({ message }: { message: string }) {
   return (
     <div className="mb-4">
       <div className="text-foreground max-w-[90%]">

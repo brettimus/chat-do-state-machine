@@ -1,8 +1,8 @@
-import { setup, assign } from "xstate";
-import { chatMachine } from "./machines/chat/chat";
-import { schemaCodegenMachine } from "./machines/codegen/schema-codegen/schema-codegen";
-import { apiCodegenMachine } from "./machines/codegen/api-codegen/api-codegen";
 import type { Message } from "ai";
+import { assign, setup } from "xstate";
+import { chatMachine } from "./machines/chat/chat";
+import { apiCodegenMachine } from "./machines/codegen/api-codegen/api-codegen";
+import { dbSchemaCodegenMachine } from "./machines/codegen/db-schema-codegen/db-schema-codegen";
 
 interface SpectacularMachineInput {
   cwd: string;
@@ -30,12 +30,12 @@ export const spectacularMachine = setup({
   types: {
     context: {} as SpectacularMachineContext,
     input: {} as SpectacularMachineInput,
-    events: {} as { type: "user.message"; prompt: string },
+    events: {} as { type: "user.message"; content: string },
     output: {} as SpectacularMachineOutput,
   },
   actors: {
     ideationActor: chatMachine,
-    schemaGenerationActor: schemaCodegenMachine,
+    schemaGenerationActor: dbSchemaCodegenMachine,
     apiGenerationActor: apiCodegenMachine,
   },
 }).createMachine({

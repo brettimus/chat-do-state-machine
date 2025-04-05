@@ -1,23 +1,24 @@
-import { appendResponseMessages, type Message } from "ai";
-import { setup, assign } from "xstate";
-import {
-  generateSpecActor,
-  askNextQuestionActor,
-  saveSpecToDiskActor,
-  routeRequestActor,
-  type RouterResponse,
-} from "./actors";
-import {
-  aiTextStreamMachine,
-  type AiTextStreamResult,
-  type AiResponseMessage,
-} from "../streaming";
+import { type Message, appendResponseMessages } from "ai";
+import { assign, setup } from "xstate";
 import {
   DEFAULT_AI_PROVIDER,
   type FpAiConfig,
   type FpModelProvider,
 } from "../../ai";
 import { createUserMessage, pathFromInput } from "../../utils";
+import {
+  type AiResponseMessage,
+  type AiTextStreamResult,
+  aiTextStreamMachine,
+} from "../streaming";
+import {
+  type RouterResponse,
+  askNextQuestionActor,
+  generateSpecActor,
+  routeRequestActor,
+  saveSpecNoopActor,
+} from "./actors";
+import type { ChunkEvent } from "../streaming";
 
 interface ChatMachineInput {
   apiKey: string;
@@ -29,6 +30,8 @@ interface ChatMachineInput {
 export interface ChatMachineContext {
   aiConfig: FpAiConfig;
   messages: Message[];
+  error: unknown | null;
+  errorHistory: unknown[];
   cwd: string;
   spec: string | null;
   projectDir: string | null;
@@ -37,8 +40,14 @@ export interface ChatMachineContext {
   streamResponse: AiTextStreamResult | null;
 }
 
+type ChatMachineEvent =
+  | { type: "user.message"; content: string }
+  | { type: "cancel" }
+  | ChunkEvent;
+
 interface ChatMachineOutput {
   messages: Message[];
+  errorHistory: unknown[];
   cwd: string;
   spec: string | null;
   specLocation: string | null;
@@ -50,35 +59,45 @@ const chatMachine = setup({
   types: {
     context: {} as ChatMachineContext,
     input: {} as ChatMachineInput,
-    events: {} as { type: "user.message"; prompt: string },
+    events: {} as ChatMachineEvent,
     output: {} as ChatMachineOutput,
   },
   actors: {
     routeRequest: routeRequestActor,
     askNextQuestion: askNextQuestionActor,
     generateSpec: generateSpecActor,
-    saveSpec: saveSpecToDiskActor,
+    saveSpec: saveSpecNoopActor,
     processQuestionStream: aiTextStreamMachine,
   },
   guards: {
-    shouldAskFollowUp: (_context, routerResponse: RouterResponse) => {
+    shouldAskFollowUp: (_, routerResponse: RouterResponse) => {
       return routerResponse.nextStep === "ask_follow_up_question";
     },
-    shouldGenerateSpec: (_context, routerResponse: RouterResponse) => {
+    shouldGenerateSpec: (_, routerResponse: RouterResponse) => {
       return routerResponse.nextStep === "generate_implementation_plan";
     },
   },
   actions: {
     addUserMessage: assign({
-      messages: ({ context }, params: { prompt: string }) => [
+      messages: ({ context }, params: { content: string }) => [
         ...context.messages,
-        createUserMessage(params.prompt),
+        createUserMessage(params.content),
       ],
     }),
+    handleStreamChunk: (_, _params: { chunk: string }) => {
+      // NOTE - `handleStreamChunk` is a noop by default,
+      //         but it can be overridden with `.provide`
+    },
+    handleNewAssistantMessages: (
+      _,
+      _params: { responseMessages: AiResponseMessage[] }
+    ) => {
+      // NOTE - This is a noop by default, but it's a good place to add logic to handle new assistant messages via `.provide`
+    },
     updateAssistantMessages: assign({
       messages: (
         { context },
-        params: { responseMessages: AiResponseMessage[] },
+        params: { responseMessages: AiResponseMessage[] }
       ) => {
         return appendResponseMessages({
           messages: context.messages,
@@ -86,6 +105,16 @@ const chatMachine = setup({
         });
       },
       streamResponse: null, // Clear the raw streaming response
+    }),
+    recordError: assign({
+      error: (_, event: { error: unknown }) => event.error,
+      errorHistory: ({ context }, event: { error: unknown }) => [
+        ...context.errorHistory,
+        event.error,
+      ],
+    }),
+    resetError: assign({
+      error: () => null,
     }),
   },
 }).createMachine({
@@ -100,36 +129,40 @@ const chatMachine = setup({
       aiGatewayUrl: input.aiGatewayUrl,
     },
     messages: [],
+    error: null,
+    errorHistory: [],
     cwd: input.cwd,
     spec: null,
     specLocation: null,
     title: "spec.md",
     streamResponse: null,
-    // TODO - set project dir
     projectDir: input.cwd,
   }),
   states: {
     AwaitingUserInput: {
       on: {
         "user.message": {
-          description: "The user has sent a message to the chat agent",
+          description: "The user sends a message to the chat agent",
           target: "Routing",
-          // Update the internal messages state
           actions: [
-            ({ event }) => console.log("AwaitingUserInput got event:", event),
             {
               type: "addUserMessage",
               params: ({ event }) => {
                 return {
-                  prompt: event.prompt,
+                  content: event.content,
                 };
               },
-            }
+            },
           ],
         },
       },
     },
     Routing: {
+      on: {
+        cancel: {
+          target: "AwaitingUserInput",
+        },
+      },
       invoke: {
         id: "routeRequest",
         src: "routeRequest",
@@ -158,9 +191,21 @@ const chatMachine = setup({
             },
           },
         ],
+        onError: {
+          target: "Error",
+          actions: {
+            type: "recordError",
+            params: ({ event }) => ({ error: event.error }),
+          },
+        },
       },
     },
     FollowingUp: {
+      on: {
+        cancel: {
+          target: "AwaitingUserInput",
+        },
+      },
       invoke: {
         id: "askNextQuestion",
         src: "askNextQuestion",
@@ -174,17 +219,48 @@ const chatMachine = setup({
             streamResponse: ({ event }) => event.output,
           }),
         },
-        // TODO - Add onError handler
+        onError: {
+          target: "Error",
+          actions: {
+            type: "recordError",
+            params: ({ event }) => ({ error: event.error }),
+          },
+        },
       },
     },
     ProcessingAiResponse: {
+      on: {
+        cancel: {
+          target: "AwaitingUserInput",
+          // TODO - Flush message somehow?
+          actions: ({ self }) => {
+            const processQuestionStream =
+              self.getSnapshot().children.processQuestionStream;
+            if (processQuestionStream) {
+              const cancelledActorContext =
+                processQuestionStream.getSnapshot().context;
+              console.log("cancelledActorContext", cancelledActorContext);
+            } else {
+              console.log("no processQuestionStream upon cancellation");
+            }
+          },
+        },
+        "textStream.chunk": {
+          actions: {
+            type: "handleStreamChunk",
+            params: ({ event }) => ({ chunk: event.content }),
+          },
+        },
+      },
       invoke: {
         id: "processQuestionStream",
         src: "processQuestionStream",
-        input: ({ context }) => ({
+        input: ({ context, self }) => ({
           // HACK - It's hard to strongly type this stuff without adding a lot of complexity
           // TODO - Investigate if we can assert the type on `entry` somehow
+          // TODO - Try to remove this reference to the streamResponse, it's only useful for the CLI
           streamResponse: context.streamResponse as AiTextStreamResult,
+          parent: self,
         }),
         onDone: {
           target: "AwaitingUserInput",
@@ -197,9 +273,23 @@ const chatMachine = setup({
                 };
               },
             },
+            {
+              type: "handleNewAssistantMessages",
+              params: ({ event }) => {
+                return {
+                  responseMessages: event.output.responseMessages,
+                };
+              },
+            },
           ],
         },
-        // TODO - Add onError handler
+        onError: {
+          target: "Error",
+          actions: {
+            type: "recordError",
+            params: ({ event }) => ({ error: event.error }),
+          },
+        },
       },
     },
     GeneratingSpec: {
@@ -218,6 +308,13 @@ const chatMachine = setup({
             }),
           ],
           target: "SavingSpec",
+        },
+        onError: {
+          target: "Error",
+          actions: {
+            type: "recordError",
+            params: ({ event }) => ({ error: event.error }),
+          },
         },
       },
     },
@@ -241,13 +338,42 @@ const chatMachine = setup({
               pathFromInput(context.title, context.cwd),
           }),
         },
+        onError: {
+          target: "Error",
+          actions: {
+            type: "recordError",
+            params: ({ event }) => ({ error: event.error }),
+          },
+        },
       },
     },
     Done: {
       type: "final",
     },
+    Error: {
+      on: {
+        "user.message": {
+          target: "Routing",
+          actions: [
+            // Flush error state
+            {
+              type: "resetError",
+            },
+            {
+              type: "addUserMessage",
+              params: ({ event }) => {
+                return {
+                  content: event.content,
+                };
+              },
+            },
+          ],
+        },
+      },
+    },
   },
   output: ({ context }) => ({
+    errorHistory: context.errorHistory,
     spec: context.spec,
     specLocation: context.specLocation,
     messages: context.messages,

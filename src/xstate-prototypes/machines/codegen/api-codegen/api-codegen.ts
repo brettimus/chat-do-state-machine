@@ -1,18 +1,20 @@
-import { setup, assign } from "xstate";
-import { log } from "@/xstate-prototypes/utils/logging/logger";
 import {
   DEFAULT_AI_PROVIDER,
   type FpAiConfig,
   type FpModelProvider,
 } from "@/xstate-prototypes/ai";
-import { validateTypeScriptActor } from "@/xstate-prototypes/machines/typechecking/typecheck";
-import type { ErrorInfo } from "@/xstate-prototypes/machines/typechecking";
 import {
-  generateApiActor,
+  type ErrorInfo,
+  validateTypeScriptNoopActor,
+} from "@/xstate-prototypes/typechecking";
+import { log } from "@/xstate-prototypes/utils/logging/logger";
+import { assign, setup } from "xstate";
+import {
+  type AnalyzeApiErrorsResult,
   analyzeApiErrorsActor,
   fixApiErrorsActor,
-  saveApiIndexToDiskActor,
-  type AnalyzeApiErrorsResult,
+  generateApiActor,
+  saveApiIndexNoopActor,
 } from "./actors";
 
 interface ApiCodegenMachineInput {
@@ -61,8 +63,8 @@ export const apiCodegenMachine = setup({
   },
   actors: {
     generateApi: generateApiActor,
-    saveApiIndex: saveApiIndexToDiskActor,
-    validateTypeScript: validateTypeScriptActor,
+    saveApiIndex: saveApiIndexNoopActor,
+    validateTypeScript: validateTypeScriptNoopActor,
     analyzeApiErrors: analyzeApiErrorsActor,
     fixApiErrors: fixApiErrorsActor,
   },
@@ -156,7 +158,7 @@ export const apiCodegenMachine = setup({
         log(
           "info",
           "Schema verification failed. Waiting for errors to analyze",
-          { stage: "error-wait" },
+          { stage: "error-wait" }
         ),
       invoke: {
         id: "validateTypeScript",
@@ -169,7 +171,7 @@ export const apiCodegenMachine = setup({
             target: "FixingErrors",
             guard: ({ event }) => {
               const apiErrors = event.output.filter((e: ErrorInfo) =>
-                e?.location?.includes("index.ts"),
+                e?.location?.includes("index.ts")
               );
               return apiErrors.length > 0;
             },

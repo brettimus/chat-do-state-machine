@@ -1,1 +1,2 @@
-export { apiCodegenMachine } from "./api-codegen/api-codegen";
+export { apiCodegenMachine } from "./api-codegen";
+export { dbSchemaCodegenMachine } from "./db-schema-codegen";

@@ -1,9 +1,9 @@
-import { generateObject, type Message } from "ai";
+import { type Message, generateObject } from "ai";
 import { z } from "zod";
-import type { FpAiConfig, FpModelProvider } from "../../types";
-import { OPENAI_STRATEGY } from "./openai";
-import { ANTHROPIC_STRATEGY } from "./anthropic";
 import { aiModelFactory } from "../../ai-model-factory";
+import type { FpAiConfig, FpModelProvider } from "../../types";
+import { ANTHROPIC_STRATEGY } from "./anthropic";
+import { OPENAI_STRATEGY } from "./openai";
 
 const RouteRequestResponseSchema = z.object({
   reasoning: z
@@ -21,7 +21,7 @@ export type RouteRequestOptions = {
 export async function routeRequest(
   aiConfig: FpAiConfig,
   options: RouteRequestOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<RouterResponse> {
   const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
   const model = fromModelProvider(aiProvider, apiKey, aiGatewayUrl);
@@ -62,7 +62,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

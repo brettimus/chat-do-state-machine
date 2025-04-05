@@ -1,10 +1,10 @@
+import { log } from "@/xstate-prototypes/utils/logging/logger";
 import { generateObject } from "ai";
 import { z } from "zod";
-import { log } from "@/xstate-prototypes/utils/logging/logger";
 import { aiModelFactory } from "../../../ai-model-factory";
 import type { FpAiConfig, FpModelProvider } from "../../../types";
-import { OPENAI_STRATEGY } from "./openai";
 import { ANTHROPIC_STRATEGY } from "./anthropic";
+import { OPENAI_STRATEGY } from "./openai";
 
 export type GenerateApiResult = z.infer<typeof GenerateApiSchema>;
 
@@ -65,7 +65,7 @@ export type GenerateApiOptions = {
 export async function generateApi(
   aiConfig: FpAiConfig,
   options: GenerateApiOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<GenerateApiResult> {
   try {
     const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
@@ -86,7 +86,7 @@ export async function generateApi(
       dbSchema,
       templateExample,
       drizzleOrmExamples,
-      commonHonoMistakes,
+      commonHonoMistakes
     );
 
     log("debug", "Generating API with reasoning", { apiPlan, dbSchema });
@@ -114,7 +114,7 @@ export async function generateApi(
       "error",
       error instanceof Error
         ? error
-        : new Error("Unknown error in generate API"),
+        : new Error("Unknown error in generate API")
     );
     throw error;
   }
@@ -140,7 +140,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

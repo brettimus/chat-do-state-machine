@@ -1,10 +1,10 @@
-import { generateText } from "ai";
+import type { ErrorInfo } from "@/xstate-prototypes/typechecking/types";
 import { log } from "@/xstate-prototypes/utils/logging/logger";
-import type { FpAiConfig, FpModelProvider } from "../../../types";
+import { generateText } from "ai";
 import { aiModelFactory } from "../../../ai-model-factory";
-import type { ErrorInfo } from "@/xstate-prototypes/machines/typechecking/types";
-import { OPENAI_STRATEGY } from "./openai";
+import type { FpAiConfig, FpModelProvider } from "../../../types";
 import { ANTHROPIC_STRATEGY } from "./anthropic";
+import { OPENAI_STRATEGY } from "./openai";
 
 // Infer the `sources` type from the generateText return type
 type GenerateTextReturnType = Awaited<ReturnType<typeof generateText>>;
@@ -26,7 +26,7 @@ export type AnalyzeApiErrorsOptions = {
 export async function analyzeApiErrors(
   aiConfig: FpAiConfig,
   options: AnalyzeApiErrorsOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<AnalyzeApiErrorsResult | null> {
   try {
     const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
@@ -63,7 +63,7 @@ export async function analyzeApiErrors(
       "error",
       error instanceof Error
         ? error
-        : new Error("Unknown error in analyze API errors"),
+        : new Error("Unknown error in analyze API errors")
     );
     return null;
   }
@@ -74,7 +74,7 @@ export async function analyzeApiErrors(
  */
 function generateApiErrorAnalysisPrompt(
   apiCode: string,
-  errorMessages: ErrorInfo[],
+  errorMessages: ErrorInfo[]
 ): string {
   return `
 I'm trying to create a Hono API with Drizzle ORM using Cloudflare Workers. Here's my current index.ts file:
@@ -115,7 +115,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

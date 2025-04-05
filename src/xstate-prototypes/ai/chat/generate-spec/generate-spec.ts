@@ -1,10 +1,10 @@
 import type { Message } from "ai";
 import { generateObject } from "ai";
 import { z } from "zod";
-import type { FpAiConfig, FpModelProvider } from "../../types";
 import { aiModelFactory } from "../../ai-model-factory";
-import { OPENAI_STRATEGY } from "./openai";
+import type { FpAiConfig, FpModelProvider } from "../../types";
 import { ANTHROPIC_STRATEGY } from "./anthropic";
+import { OPENAI_STRATEGY } from "./openai";
 
 // Schema remains the same
 export const GeneratedPlanSchema = z.object({
@@ -12,7 +12,7 @@ export const GeneratedPlanSchema = z.object({
   plan: z
     .string()
     .describe(
-      "A detailed implementation plan / handoff document for a developer to implement the project (in markdown).",
+      "A detailed implementation plan / handoff document for a developer to implement the project (in markdown)."
     ),
 });
 
@@ -25,7 +25,7 @@ export type GenerateSpecOptions = {
 export async function generateSpec(
   aiConfig: FpAiConfig,
   options: GenerateSpecOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<GeneratedPlan> {
   const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
   const model = fromModelProvider(aiProvider, apiKey, aiGatewayUrl);
@@ -63,7 +63,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

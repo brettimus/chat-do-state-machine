@@ -1,8 +1,8 @@
-import type { LanguageModelV1 } from "ai";
-import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
-import { ollama } from "ollama-ai-provider";
+import { createOpenAI } from "@ai-sdk/openai";
+import type { LanguageModelV1 } from "ai";
 import { traceAISDKModel } from "evalite/ai-sdk";
+import { ollama } from "ollama-ai-provider";
 import type {
   AnthropicModelName,
   FpAiModelFactoryOptions,
@@ -20,7 +20,7 @@ import type {
  * Tracing is a noop in production.
  */
 export function aiModelFactory(
-  options: FpAiModelFactoryOptions,
+  options: FpAiModelFactoryOptions
 ): LanguageModelV1 {
   const { apiKey, modelDetails, aiGatewayUrl } = options;
   const model = fromModelDetails(apiKey, modelDetails, aiGatewayUrl);
@@ -31,7 +31,7 @@ export function aiModelFactory(
 function fromModelDetails(
   apiKey: string,
   modelDetails: FpModelDetails,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ): LanguageModelV1 {
   const { modelProvider, modelName } = modelDetails;
   switch (modelProvider) {
@@ -40,7 +40,7 @@ function fromModelDetails(
         apiKey,
         modelName,
         modelDetails.responsesApi,
-        aiGatewayUrl,
+        aiGatewayUrl
       );
     }
     case "anthropic": {
@@ -58,7 +58,7 @@ function fromOpenAiModelName(
   apiKey: string,
   modelName: OpenAiModelName,
   withOpenAIResponsesApi = false,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ): LanguageModelV1 {
   const openai = createOpenAI({ apiKey, baseURL: aiGatewayUrl });
   const model = withOpenAIResponsesApi
@@ -70,7 +70,7 @@ function fromOpenAiModelName(
 function fromAnthropicModelName(
   apiKey: string,
   modelName: AnthropicModelName,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ): LanguageModelV1 {
   const anthropic = createAnthropic({ apiKey, baseURL: aiGatewayUrl });
   return anthropic(modelName);

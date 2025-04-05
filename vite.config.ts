@@ -7,26 +7,26 @@ import tailwindcss from "@tailwindcss/vite";
 
 // NOTE - We need this plugin to handle the raw SQL files of our migrations with vite
 const handleSql: Plugin = {
-  name: 'handle-sql-files',
+  name: "handle-sql-files",
   transform(code, id) {
-    if (id.endsWith('.sql')) {
+    if (id.endsWith(".sql")) {
       return {
-        code: `export default ${JSON.stringify(readFileSync(id, 'utf-8'))};`,
-        map: null
+        code: `export default ${JSON.stringify(readFileSync(id, "utf-8"))};`,
+        map: null,
       };
     }
   },
-  
+
   resolveId(id) {
-    if (id.endsWith('.sql') || id.includes('.sql?raw')) {
-      const cleanId = id.replace('?raw', '');
+    if (id.endsWith(".sql") || id.includes(".sql?raw")) {
+      const cleanId = id.replace("?raw", "");
       const absolutePath = resolve(cleanId);
       if (existsSync(absolutePath)) {
         return absolutePath;
       }
     }
-  }
-}
+  },
+};
 
 export default defineConfig({
   plugins: [handleSql, cloudflare(), react(), tailwindcss()],

@@ -1,4 +1,3 @@
-import { config } from "dotenv";
 import { defineConfig } from "drizzle-kit";
 
 export default defineConfig({
@@ -6,4 +5,4 @@ export default defineConfig({
   out: "./drizzle",
   dialect: "sqlite",
   driver: "durable-sqlite",
-})
+});

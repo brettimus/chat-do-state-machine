@@ -1,9 +1,9 @@
-import { generateText } from "ai";
 import { log } from "@/xstate-prototypes/utils/logging/logger";
-import type { FpAiConfig, FpModelProvider } from "../../../types";
+import { generateText } from "ai";
 import { aiModelFactory } from "../../../ai-model-factory";
-import { OPENAI_STRATEGY } from "./openai";
+import type { FpAiConfig, FpModelProvider } from "../../../types";
 import { ANTHROPIC_STRATEGY } from "./anthropic";
+import { OPENAI_STRATEGY } from "./openai";
 
 export type FixApiErrorsResult = {
   code: string;
@@ -23,7 +23,7 @@ export type FixApiErrorsOptions = {
 export async function fixApiErrors(
   aiConfig: FpAiConfig,
   options: FixApiErrorsOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ): Promise<FixApiErrorsResult | null> {
   try {
     const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
@@ -86,7 +86,7 @@ Return only the fixed code. It should be valid TypeScript code. DO NOT INCLUDE A
       "error",
       error instanceof Error
         ? error
-        : new Error("Unknown error in fix API errors"),
+        : new Error("Unknown error in fix API errors")
     );
     return null;
   }
@@ -112,7 +112,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

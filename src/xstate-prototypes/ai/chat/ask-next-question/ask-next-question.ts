@@ -1,10 +1,10 @@
 import { streamText } from "ai";
 import type { Message } from "ai";
+import { ollama } from "ollama-ai-provider";
 import { aiModelFactory } from "../../ai-model-factory";
 import type { FpAiConfig, FpModelProvider } from "../../types";
-import { OPENAI_STRATEGY } from "./openai";
 import { ANTHROPIC_STRATEGY } from "./anthropic";
-import { ollama } from "ollama-ai-provider";
+import { OPENAI_STRATEGY } from "./openai";
 
 export type AskNextQuestionOptions = {
   messages: Message[];
@@ -13,7 +13,7 @@ export type AskNextQuestionOptions = {
 export async function askNextQuestion(
   aiConfig: FpAiConfig,
   options: AskNextQuestionOptions,
-  signal?: AbortSignal,
+  signal?: AbortSignal
 ) {
   const { apiKey, aiProvider, aiGatewayUrl } = aiConfig;
   const model = fromModelProvider(aiProvider, apiKey, aiGatewayUrl);
@@ -53,7 +53,7 @@ function getStrategyForProvider(aiProvider: FpModelProvider) {
 function fromModelProvider(
   aiProvider: FpModelProvider,
   apiKey: string,
-  aiGatewayUrl?: string,
+  aiGatewayUrl?: string
 ) {
   switch (aiProvider) {
     case "openai":

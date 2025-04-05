@@ -1,6 +1,7 @@
 # xstate + cloudflare agents-sdk + drizzle
 
 ## Setup
+
 you need an openai api key to run this project.
 
 ```bash
@@ -9,6 +10,7 @@ cp .dev.vars.example .dev.vars
 ```
 
 install deps and run the dev server
+
 ```bash
 pnpm i
 pnpm db:generate

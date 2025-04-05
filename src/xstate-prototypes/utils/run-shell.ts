@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 export async function runShell(
   cwd: string,
-  commands: string[],
+  commands: string[]
 ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
   const commandStr = commands.join(" ");
   const stdoutChunks: Buffer[] = [];
