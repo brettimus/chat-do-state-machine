@@ -9,6 +9,7 @@ import {
   type DrizzleSqliteDODatabase,
 } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
+import { eq } from "drizzle-orm";
 // @ts-expect-error - TODO: Add drizzle to the typescript src path
 import migrations from "../../drizzle/migrations.js";
 // import { Fiber } from "@fiberplane/agents";
@@ -23,7 +24,9 @@ import { messagesTable, type MessageSelect } from "../db/schema";
 
 type CloudflareEnv = Env;
 
-type IncomingMessage = { type: "user.message"; content: string };
+type IncomingMessage = 
+  | { type: "user.message"; content: string }
+  | { type: "clear.messages" };
 
 type OutgoingMessage =
   | { type: "init.messages"; messages: MessageSelect[] }
@@ -185,7 +188,35 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       // - [x] Broadcast all state changes of actor
       // - [x] Broadcast all `textStream.chunk` events too
       //
+    } else if (event.type === "clear.messages") {
+      console.log("Clearing all messages for chat:", this.chatId);
+      
+      // Delete all messages from the database for this chat
+      await this.db.delete(messagesTable).where(eq(messagesTable.chatId, this.chatId));
+      
+      // HACK - Reset the actor to clear its internal message history
+      this.#resetActor();
+
+      // Broadcast to all clients that messages were cleared
+      this.#broadcastChatMessage({
+        type: "init.messages",
+        messages: [], // Send empty array to clear client-side messages
+      });
     }
+  }
+
+  // HACK - Until implementing a "clear.messages" event, this is the easiest way to reset the messages
+  //        Bug: This will stop any ongoing generations
+  #resetActor() {
+    this.actor.stop();
+    const chat = createChatActor(
+      this.env.OPENAI_API_KEY,
+      this.handleChatActorStateChange,
+      this.handleAssistantMessageChunk,
+      this.handleNewAssistantMessages
+    );
+    this.actor = chat.actor;
+    this.actor.start();
   }
 
   #broadcastChatStateUpdate(

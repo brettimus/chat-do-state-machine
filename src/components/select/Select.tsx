@@ -26,6 +26,7 @@ export const Select = ({
 
   return (
     <select
+      // @ts-ignore - type error with shadcn component
       onPointerDown={(e: React.PointerEvent) => {
         if (e.pointerType === "mouse") {
           setIsPointer(true);

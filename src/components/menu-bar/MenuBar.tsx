@@ -1,6 +1,6 @@
 import { Tooltip } from "@/components/tooltip/Tooltip";
 import { useMenuNavigation } from "@/hooks/useMenuNavigation";
-import { cn } from "@/utils/tw";
+import { cn } from "@/lib/utils";
 import { IconContext } from "@phosphor-icons/react";
 import { useRef } from "react";
 
@@ -33,6 +33,7 @@ const MenuOption = ({
         }
       )}
       onClick={onClick}
+      type="button"
     >
       <IconContext.Provider value={{ size: 18 }}>{icon}</IconContext.Provider>
     </button>
@@ -66,6 +67,7 @@ export const MenuBar = ({
     >
       {options.map((option, index) => (
         <MenuOption
+          // biome-ignore lint/suspicious/noArrayIndexKey: options index is stable
           key={index}
           {...option}
           isActive={isActive}
