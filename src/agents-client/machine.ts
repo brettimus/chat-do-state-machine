@@ -1,14 +1,7 @@
 import type { ChatMachineStateName } from "@/agents-server/machine-adapter";
-import { assign, setup } from "xstate";
+import { assign, setup, type StateFrom } from "xstate";
 
-export type ChatState =
-  | "Idle"
-  | "WaitingForInput"
-  | "SendingPrompt"
-  | "Thinking"
-  | "FollowingUp"
-  | "Done"
-  | "Error";
+export type ChatState = StateFrom<typeof uiChatMachine>["value"];
 
 export type UiChatMachineContext = {
   chunks: string[];
@@ -27,7 +20,11 @@ type ChunkEvent = {
   content: string;
 };
 
-export type UiChatEvent = ChatStateUpdateEvent | ChunkEvent;
+type ConnectedEvent = {
+  type: "connected";
+};
+
+export type UiChatEvent = ChatStateUpdateEvent | ChunkEvent | ConnectedEvent;
 
 export const uiChatMachine = setup({
   types: {
@@ -66,7 +63,7 @@ export const uiChatMachine = setup({
   },
 }).createMachine({
   id: "uiChatMachine",
-  initial: "Idle",
+  initial: "Connecting",
   context: {
     chunks: [],
     currentMessage: "",
@@ -75,7 +72,7 @@ export const uiChatMachine = setup({
   on: {
     "chat.state.update": [
       {
-        target: ".Idle",
+        target: ".AwaitingUserInput",
         guard: ({ event }) => event.state === "AwaitingUserInput",
         actions: "storeServerContext",
       },
@@ -109,11 +106,22 @@ export const uiChatMachine = setup({
         guard: ({ event }) => event.state === "Done",
         actions: "storeServerContext",
       },
-      // { target: "Error", guard: ({ event }) => event.state === "Error", actions: "storeServerContext" }
+      {
+        target: ".Error",
+        guard: ({ event }) => event.state === "Error",
+        actions: "storeServerContext",
+      },
     ],
   },
   states: {
-    Idle: {},
+    Connecting: {
+      on: {
+        connected: {
+          target: "AwaitingUserInput",
+        },
+      },
+    },
+    AwaitingUserInput: {},
     Loading: {
       entry: [
         () => {
@@ -127,13 +135,13 @@ export const uiChatMachine = setup({
           actions: "appendChunk",
         },
       },
+      // FIXME - This could create a weird race condition in the UI
+      exit: [
+        "clearChunks",
+        "clearCurrentMessage"
+      ]
     },
-    Done: {
-      // entry: [
-      //   "clearChunks",
-      //   "clearCurrentMessage"
-      // ]
-    },
+    Done: {},
     // TODO
     Error: {},
   },

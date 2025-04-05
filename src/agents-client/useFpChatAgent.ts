@@ -1,6 +1,6 @@
 import { useAgent } from "agents/react";
 import { useMachine, useSelector } from "@xstate/react";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type { AgentEvent, EventType } from "./types";
 import { USER_MESSAGE, ASSISTANT_MESSAGE, CHAT_STATE_UPDATE } from "./events";
 import { uiChatMachine } from "./machine";
@@ -25,14 +25,20 @@ const createMessage = (
 });
 
 export function useFpChatAgent(chatId: string) {
-
   const [messages, setMessages] = useState<FpMessage[]>([]);
 
   const [uiChatMachineState, send, uiChatMachineRef] =
     useMachine(uiChatMachine);
 
+  useEffect(() => {
+    console.log("uiChatMachineState", uiChatMachineState);
+  }, [uiChatMachineState]);
+
+  const isConnecting = useSelector(uiChatMachineRef, (refState) => {
+    return refState.matches("Connecting");
+  });
+
   const isStreaming = useSelector(uiChatMachineRef, (refState) => {
-    console.log("isStreaming", refState.matches("StreamingResponse"));
     return refState.matches("StreamingResponse");
   });
 
@@ -143,11 +149,16 @@ export function useFpChatAgent(chatId: string) {
         console.error("Error parsing message:", error);
       }
     },
-    onOpen: () => console.log("Connection established"),
+    onOpen: () => {
+      console.log("Connection established");
+      send({ type: "connected" });
+    },
+    // TODO - Communciate closing the connection
     onClose: () => console.log("Connection closed"),
   });
 
   return {
+    isConnecting,
     isStreaming,
     chunksToDisplay,
     messages,

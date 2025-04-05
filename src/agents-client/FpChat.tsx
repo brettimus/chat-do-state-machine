@@ -2,25 +2,36 @@ import { useAgent } from "agents/react";
 import { useMachine, useSelector } from "@xstate/react";
 import { Button } from "@/components/button/Button";
 import { cn } from "@/lib/utils";
-import { useState, useCallback } from "react";
+import { useState, useEffect } from "react";
 import type { AgentEvent, EventType } from "./types";
 import { USER_MESSAGE, ASSISTANT_MESSAGE, CHAT_STATE_UPDATE } from "./events";
 import { uiChatMachine } from "./machine";
 import { StreamingMessage } from "./StreamingMessage";
 import type { MessageSelect } from "@/db/schema";
 import { useFpChatAgent } from "./useFpChatAgent";
+import { useScrollToBottom } from "./hooks/useScrollToBottom";
+import { LoadingAnimation } from "./components/LoadingAnimation";
+
 // Chat component
 export function FpChatAgentInterface() {
   const [chatId] = useState(`chat-${Date.now()}`);
   const [inputValue, setInputValue] = useState("");
+  const { scrollRef, scrollToBottom } = useScrollToBottom();
 
   const {
+    isConnecting,
     isStreaming,
     chunksToDisplay,
     messages,
     addUserMessage,
     clearMessages,
   } = useFpChatAgent(chatId);
+
+  // Scroll to bottom when messages change or streaming occurs
+  // biome-ignore lint/correctness/useExhaustiveDependencies: we want to control retriggering
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages, isStreaming, chunksToDisplay, scrollToBottom]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim()) {
@@ -56,6 +67,7 @@ export function FpChatAgentInterface() {
 
       {/* Messages area */}
       <div
+        ref={scrollRef}
         className={cn(
           "flex-1 overflow-y-auto mb-4 space-y-4 pr-2",
           "scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700",
@@ -98,8 +110,12 @@ export function FpChatAgentInterface() {
                 </p>
               </div>
             ))}
-            {isStreaming && <p>Streaming...</p>}
-            {chunksToDisplay && <StreamingMessage message={chunksToDisplay} />}
+            {isStreaming && chunksToDisplay && <StreamingMessage message={chunksToDisplay} />}
+            {isConnecting && (
+              <div className="mr-auto">
+                <LoadingAnimation className="py-2" />
+              </div>
+            )}
           </>
         )}
       </div>

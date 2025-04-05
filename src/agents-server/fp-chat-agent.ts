@@ -1,3 +1,6 @@
+// Commented out since adding the decorator causes an error (see below)
+//
+// import { Fiber } from "@fiberplane/agents";
 import {
   Agent,
   type AgentContext,
@@ -12,7 +15,6 @@ import { migrate } from "drizzle-orm/durable-sqlite/migrator";
 import { eq } from "drizzle-orm";
 // @ts-expect-error - TODO: Add drizzle to the typescript src path
 import migrations from "../../drizzle/migrations.js";
-// import { Fiber } from "@fiberplane/agents";
 import {
   createChatActor,
   type ChatMachineStateChangeHandlerPayload,
@@ -75,6 +77,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
 
     const chat = createChatActor(
       env.OPENAI_API_KEY,
+      undefined,// env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
       this.handleNewAssistantMessages
@@ -211,6 +214,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     this.actor.stop();
     const chat = createChatActor(
       this.env.OPENAI_API_KEY,
+      undefined,// this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
       this.handleNewAssistantMessages

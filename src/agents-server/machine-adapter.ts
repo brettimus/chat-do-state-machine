@@ -22,6 +22,7 @@ export type ChatMachineStateChangeHandlerPayload = Omit<
 
 export function createChatActor(
   apiKey: string,
+  aiGatewayUrl: string | undefined,
   onStateChange: ChatMachineStateChangeHandler,
   onStreamingMessageChunk: (chunks: string[]) => void,
   onNewAssistantMessages: (message: string[]) => void
@@ -65,6 +66,8 @@ export function createChatActor(
     {
       input: {
         apiKey,
+        aiProvider: "openai",
+        aiGatewayUrl,
         cwd: "/",
       },
     }
