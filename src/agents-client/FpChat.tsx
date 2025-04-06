@@ -1,7 +1,6 @@
 import { Button } from "@/components/button/Button";
 import { cn } from "@/lib/utils";
 import { useState, useEffect } from "react";
-import { StreamingMessage } from "./components/StreamingMessage";
 import { useFpChatAgent } from "./useFpChatAgent";
 import { useScrollToBottom } from "./hooks/useScrollToBottom";
 import { LoadingAnimation } from "./components/LoadingAnimation";
@@ -22,7 +21,6 @@ export function FpChatAgentInterface() {
     isConnectionFailed,
     isErrorResponse,
     errorMessage,
-    chunksToDisplay,
     messages,
     error,
     addUserMessage,
@@ -34,7 +32,7 @@ export function FpChatAgentInterface() {
   // biome-ignore lint/correctness/useExhaustiveDependencies: we want to control retriggering
   useEffect(() => {
     scrollToBottom();
-  }, [messages, isLoadingAssistantResponse, chunksToDisplay, scrollToBottom]);
+  }, [messages, isLoadingAssistantResponse, scrollToBottom]);
 
   const handleSendMessage = () => {
     if (!inputValue.trim() || isInitializing || isConnectionFailed) {
@@ -130,9 +128,6 @@ export function FpChatAgentInterface() {
                 isPending={msg.status === "pending"}
               />
             ))}
-            {isLoadingAssistantResponse && chunksToDisplay && (
-              <StreamingMessage message={chunksToDisplay} />
-            )}
             {isInitializing && (
               <div className="mr-auto">
                 <LoadingAnimation className="py-2" />

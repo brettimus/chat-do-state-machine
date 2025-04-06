@@ -56,13 +56,6 @@ export function useFpChatAgent(chatId: string) {
     (state) => state.context.error?.message ?? "Unknown error"
   );
 
-  const chunksToDisplay = useSelector(uiChatMachineRef, (state) => {
-    if (state.matches("LoadingAssistantResponse")) {
-      return state.context?.chunks?.join("") || "";
-    }
-    return null;
-  });
-
   // NOTE - Could cause issues if last message is pending
   const getLastMessageId = useCallback(() => {
     if (messages.length === 0) return null;
@@ -184,7 +177,6 @@ export function useFpChatAgent(chatId: string) {
     isConnectionFailed,
     isErrorResponse,
     errorMessage,
-    chunksToDisplay,
     messages,
     error,
     addUserMessage,
