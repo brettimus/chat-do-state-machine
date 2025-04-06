@@ -33,10 +33,12 @@ pnpm dev
 XState is used in this example on both the frontend and backend.
 
 - the `xstate-prototypes` directory is just a copy-paste of the one from the `spectacular` repo
-- the frontend uses a simple state machine to handle certain control flow around components
+- the frontend also uses a state machine to handle certain control flow around components
 
 ### Drizzle
 
 - the drizzle migrations are executed automagically when the durable object is created
 
 - there is a custom Vite plugin to handle importing of the sql files in the migrations folder - it probably needs a more thorough view
+
+- i hackily configured Drizzle Studio for local use `pnpm db:studio`
