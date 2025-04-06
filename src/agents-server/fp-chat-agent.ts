@@ -12,7 +12,6 @@ import {
   type DrizzleSqliteDODatabase,
 } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
-import { eq, desc } from "drizzle-orm";
 // @ts-expect-error - TODO: Add drizzle to the typescript src path
 import migrations from "../../drizzle/migrations.js";
 import {
@@ -22,11 +21,7 @@ import {
 } from "./machine-adapter";
 import type { ActorRefFrom } from "xstate";
 import type { chatMachine } from "@/xstate-prototypes/machines/chat";
-import {
-  attachmentsTable,
-  messagesTable,
-  type MessageSelect,
-} from "../db/schema";
+import type { MessageSelect } from "../db/schema";
 import {
   FpAgentEvents,
   FpUserEvents,
@@ -39,6 +34,14 @@ import type {
   FpMessageBase,
   FpUiMessagePending,
 } from "@/agents-shared/types.js";
+import {
+  listMessages,
+  saveMessage,
+  saveAttachment,
+  saveMessageWithAttachment,
+  getLastMessageId,
+  clearMessages as dbClearMessages,
+} from "./db-queries";
 
 type CloudflareEnv = Env;
 
@@ -83,7 +86,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     // we will use this to initialize the chat actor with
     // our conversation history
     ctx.blockConcurrencyWhile(async () => {
-      this.initMessages = await this.listMessages();
+      this.initMessages = await listMessages(this.db, this.chatId);
     });
 
     // TODO - Rehydrate actor state from DB, if it exists
@@ -120,8 +123,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
   }
 
   async listMessages() {
-    const messages = await this.db.select().from(messagesTable);
-    return messages;
+    return listMessages(this.db, this.chatId);
   }
 
   async saveMessage(
@@ -129,27 +131,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     sender: "user" | "assistant",
     parentMessageId: string | null
   ) {
-    try {
-      // If parentMessageId is not provided, get the last message ID
-      const lastMessageId = parentMessageId || (await this.getLastMessageId());
-
-      const result = await this.db
-        .insert(messagesTable)
-        .values({
-          content,
-          sender,
-          chatId: this.chatId,
-          parentMessageId: lastMessageId,
-        })
-        .returning();
-
-      console.log("Message saved to database:", result);
-
-      return result[0];
-    } catch (error) {
-      console.error("Error saving message to database:", error);
-      throw error;
-    }
+    return saveMessage(this.db, content, sender, this.chatId, parentMessageId);
   }
 
   async saveAttachment(
@@ -157,37 +139,25 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     filename: string,
     fileContent: string
   ) {
-    const [attachment] = await this.db
-      .insert(attachmentsTable)
-      .values({
-        messageId,
-        fileContent,
-        filename,
-      })
-      .returning();
-
-    return attachment;
+    return saveAttachment(this.db, messageId, filename, fileContent);
   }
 
   handleSaveSpec = async (spec: string) => {
-    // TODO - Save spec as attachment
-    const newMessage = await this.saveMessage(
-      `Created a new spec\n\n${spec}`,
+    // Use the new combined function to save a message with an attachment
+    const newMessage = await saveMessageWithAttachment(
+      this.db,
+      "Created a new spec",
       "assistant",
-      this.pendingAssistantMessage?.parentMessageId ?? null
-    );
-    const attachment = await this.saveAttachment(
-      newMessage.id,
+      this.chatId,
+      this.pendingAssistantMessage?.parentMessageId ?? null,
       "spec.md",
       spec
     );
+
     this.#broadcastChatMessage({
       type: "agent.message.added",
       pendingId: this.pendingAssistantMessage?.pendingId ?? null,
-      message: {
-        ...newMessage,
-        attachments: [attachment],
-      },
+      message: newMessage,
     });
     this.pendingAssistantMessage = null;
   };
@@ -287,19 +257,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
   };
 
   async getLastMessageId(): Promise<string | null> {
-    try {
-      const messages = await this.db
-        .select()
-        .from(messagesTable)
-        .where(eq(messagesTable.chatId, this.chatId))
-        .orderBy(desc(messagesTable.createdAt))
-        .limit(1);
-
-      return messages.length > 0 ? messages[0].id : null;
-    } catch (error) {
-      console.error("Error getting last message ID:", error);
-      return null;
-    }
+    return getLastMessageId(this.db, this.chatId);
   }
 
   async onConnect(connection: Connection, _ctx: ConnectionContext) {
@@ -391,9 +349,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     console.log("Clearing all messages for chat:", this.chatId);
 
     // Delete all messages from the database for this chat
-    await this.db
-      .delete(messagesTable)
-      .where(eq(messagesTable.chatId, this.chatId));
+    await dbClearMessages(this.db, this.chatId);
 
     // HACK - Reset the actor to clear its internal message history
     //        Until implementing a "clear.messages" event (which I'm not sure we want to support?),

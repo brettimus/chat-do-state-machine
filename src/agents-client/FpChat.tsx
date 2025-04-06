@@ -4,8 +4,13 @@ import { useState, useEffect } from "react";
 import { useFpChatAgent } from "./useFpChatAgent";
 import { useScrollToBottom } from "./hooks/useScrollToBottom";
 import { LoadingAnimation } from "./components/LoadingAnimation";
-import type { FpUiMessage } from "@/agents-shared/types";
-import { Trash, X } from "@phosphor-icons/react";
+import { Trash, X, Paperclip, ArrowDown, ArrowUp } from "@phosphor-icons/react";
+import type {
+  FpUiMessage,
+  FpUiAttachment,
+  FpAttachmentPending,
+  FpAttachmentCommitted,
+} from "@/agents-shared/types";
 
 // Chat component
 export function FpChatAgentInterface() {
@@ -220,6 +225,25 @@ function MessageItem({ message, isPending }: MessageItemProps) {
           minute: "2-digit",
         });
 
+  // Type guard for distinguishing between attachment types
+  const isAttachmentPending = (
+    attachment: unknown
+  ): attachment is FpAttachmentPending =>
+    attachment !== null &&
+    typeof attachment === "object" &&
+    "pendingId" in attachment &&
+    "status" in attachment &&
+    attachment.status === "pending";
+
+  const isAttachmentCommitted = (
+    attachment: unknown
+  ): attachment is FpAttachmentCommitted =>
+    attachment !== null &&
+    typeof attachment === "object" &&
+    "id" in attachment &&
+    "status" in attachment &&
+    attachment.status === "committed";
+
   return (
     <div
       className={cn(
@@ -248,6 +272,95 @@ function MessageItem({ message, isPending }: MessageItemProps) {
       <p className="whitespace-pre-wrap text-sm leading-relaxed">
         {message.content}
       </p>
+
+      {message.attachments && message.attachments.length > 0 && (
+        <div className="mt-2 space-y-2">
+          {message.attachments.map((attachment, index) => {
+            const key = isAttachmentPending(attachment)
+              ? attachment.pendingId
+              : isAttachmentCommitted(attachment)
+                ? attachment.id
+                : `attachment-${index}`;
+
+            return (
+              <AttachmentPreview
+                key={key}
+                attachment={attachment as FpUiAttachment}
+                isPending={isAttachmentPending(attachment)}
+              />
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+type AttachmentPreviewProps = {
+  attachment: FpUiAttachment;
+  isPending: boolean;
+};
+
+function AttachmentPreview({ attachment, isPending }: AttachmentPreviewProps) {
+  const [expanded, setExpanded] = useState(false);
+
+  // Safely access fileContent if available (only on committed attachments)
+  const previewContent =
+    !isPending && "fileContent" in attachment
+      ? attachment.fileContent
+      : "Preview not available";
+
+  return (
+    <div
+      className={cn(
+        "border border-zinc-200 dark:border-zinc-700 rounded",
+        "text-sm",
+        "overflow-hidden",
+        "transition-all",
+        isPending && "opacity-70"
+      )}
+    >
+      <div className="flex items-center justify-between px-2 py-1 bg-zinc-50 dark:bg-zinc-800/50">
+        <div className="flex items-center gap-1">
+          <Paperclip size={14} className="text-zinc-500 dark:text-zinc-400" />
+          <span className="text-xs font-medium text-zinc-600 dark:text-zinc-300 truncate max-w-[150px]">
+            {attachment.filename}
+          </span>
+        </div>
+        {!isPending && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300"
+            aria-label={expanded ? "Collapse" : "Expand"}
+            type="button"
+          >
+            {expanded ? <ArrowUp size={14} /> : <ArrowDown size={14} />}
+          </button>
+        )}
+      </div>
+
+      {!isPending && (
+        <div
+          className={cn(
+            "px-2 py-1",
+            "bg-white dark:bg-zinc-900",
+            "font-mono text-xs text-zinc-700 dark:text-zinc-300",
+            !expanded && "max-h-20 overflow-hidden relative"
+          )}
+        >
+          <pre className="whitespace-pre-wrap">{previewContent}</pre>
+
+          {!expanded && (
+            <div className="absolute bottom-0 left-0 right-0 h-12 bg-gradient-to-t from-white dark:from-zinc-900 to-transparent" />
+          )}
+        </div>
+      )}
+
+      {isPending && (
+        <div className="px-2 py-1 text-xs text-zinc-500 dark:text-zinc-400 italic">
+          Loading attachment...
+        </div>
+      )}
     </div>
   );
 }
