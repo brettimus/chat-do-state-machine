@@ -1,4 +1,4 @@
-import React from 'react';
+import React from "react";
 import { cn } from "@/lib/utils";
 
 interface LoadingAnimationProps {
@@ -32,7 +32,7 @@ export function LoadingAnimation({ className }: LoadingAnimationProps) {
 }
 
 // Add a global CSS animation for the shine effect
-if (typeof document !== 'undefined') {
+if (typeof document !== "undefined") {
   const styleSheet = document.createElement("style");
   styleSheet.textContent = `
     @keyframes shine {
@@ -49,4 +49,4 @@ if (typeof document !== 'undefined') {
     }
   `;
   document.head.appendChild(styleSheet);
-} 
+}

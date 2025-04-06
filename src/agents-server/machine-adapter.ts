@@ -1,8 +1,4 @@
-import {
-  createActor,
-  fromPromise,
-  type StateFrom,
-} from "xstate";
+import { createActor, fromPromise, type StateFrom } from "xstate";
 import {
   chatMachine,
   type ChatMachineContext,

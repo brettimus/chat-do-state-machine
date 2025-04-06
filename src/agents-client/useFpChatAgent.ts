@@ -1,14 +1,39 @@
 import { useAgent } from "agents/react";
 import { useMachine, useSelector } from "@xstate/react";
-import { useState, useCallback, useEffect } from "react";
-import type { AgentEvent, EventType } from "./types";
-import { USER_MESSAGE, ASSISTANT_MESSAGE, CHAT_STATE_UPDATE } from "./events";
-import { uiChatMachine } from "./machine";
+import { useCallback } from "react";
+import type { FpUiMessagePending } from "@/agents-shared/types";
+import { CANCEL } from "./events";
+import { uiChatMachine } from "./ui-machine";
 import type { MessageSelect as FpMessage } from "@/db/schema";
+import {
+  FpAgentEvents,
+  FpUserEvents,
+  type FpAgentEvent,
+  type FpUserEvent,
+  type FpUserEventType,
+} from "@/agents-shared/events";
 
 // Helper functions
+const createPendingId = () =>
+  `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
 const createMessageId = () =>
   `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+
+const createPendingMessage = (
+  content: string,
+  sender: "user" | "assistant",
+  chatId: string,
+  parentMessageId: string | null
+): FpUiMessagePending => ({
+  id: sender === "user" ? createMessageId() : null,
+  chatId,
+  parentMessageId,
+  content,
+  sender,
+  pendingId: createPendingId(),
+  status: "pending",
+});
 
 const createMessage = (
   content: string,
@@ -25,144 +50,186 @@ const createMessage = (
 });
 
 export function useFpChatAgent(chatId: string) {
-  const [messages, setMessages] = useState<FpMessage[]>([]);
+  const [
+    // The state machine, which will update whenever its internal state updates
+    uiChatMachineState,
+    // The function to send events to the state machine
+    sendUiEvent,
+    // The reference to the state machine - will not trigger rerenders
+    // This is useful in combination with useSelector to select values from the state machine
+    uiChatMachineRef,
+  ] = useMachine(uiChatMachine);
 
-  const [uiChatMachineState, send, uiChatMachineRef] =
-    useMachine(uiChatMachine);
+  const messages = useSelector(
+    uiChatMachineRef,
+    (state) => state.context.messages
+  );
+  const error = useSelector(uiChatMachineRef, (state) => state.context.error);
 
-  useEffect(() => {
-    console.log("uiChatMachineState", uiChatMachineState);
-  }, [uiChatMachineState]);
+  const isInitializing = useSelector(uiChatMachineRef, (state) =>
+    state.matches("Initializing")
+  );
 
-  const isConnecting = useSelector(uiChatMachineRef, (refState) => {
-    return refState.matches("Connecting");
-  });
+  const isAwaitingUserInput = useSelector(uiChatMachineRef, (state) =>
+    state.matches("AwaitingUserInput")
+  );
 
-  const isStreaming = useSelector(uiChatMachineRef, (refState) => {
-    return refState.matches("StreamingResponse");
-  });
+  const isSavingUserMessage = useSelector(uiChatMachineRef, (state) =>
+    state.matches("SavingUserMessage")
+  );
 
-  const chunksToDisplay = useSelector(uiChatMachineRef, (refState) => {
-    if (refState.matches("StreamingResponse")) {
-      return refState.context?.chunks?.join("") || "";
+  const isLoadingAssistantResponse = useSelector(uiChatMachineRef, (state) =>
+    state.matches("LoadingAssistantResponse")
+  );
+
+  const isConnectionFailed = useSelector(uiChatMachineRef, (state) =>
+    state.matches("ConnectionFailed")
+  );
+
+  const isErrorResponse = useSelector(uiChatMachineRef, (state) =>
+    state.matches("ErrorResponse")
+  );
+
+  const chunksToDisplay = useSelector(uiChatMachineRef, (state) => {
+    if (state.matches("LoadingAssistantResponse")) {
+      return state.context?.chunks?.join("") || "";
     }
     return null;
   });
 
+  // NOTE - Could cause issues if last message is pending
+  const getLastMessageId = useCallback(() => {
+    if (messages.length === 0) return null;
+
+    const lastMessage = messages[messages.length - 1];
+    return lastMessage.id;
+  }, [messages]);
+
+  // Define connection here first before using it in other functions
+  const connection = useAgent({
+    agent: "fp-chat-agent",
+    name: "spec-assistant",
+    onMessage: (message) => {
+      try {
+        const data = JSON.parse(message.data) as FpAgentEvent;
+        // TODO - Validate the event!
+        handleAgentMessage(data);
+      } catch (error) {
+        console.error("Error parsing message from agent:", error);
+      }
+    },
+    onOpen: () => {
+      console.log("Connection established");
+      sendUiEvent({ type: "connected" });
+    },
+    // TODO - Handle connection closed in state machine?
+    onClose: () => {
+      console.log("Connection closed");
+      sendUiEvent({
+        type: "connection.error",
+        error: { message: "Connection closed unexpectedly" },
+      });
+    },
+    onError: (event) => {
+      console.error("Connection error:", event);
+      sendUiEvent({
+        type: "connection.error",
+        error: { message: "Connection error" },
+      });
+    },
+  });
+
+  // Sending a message to the agent
+  const sendAgentMessage = useCallback(
+    (event: FpUserEvent) => {
+      connection.send(JSON.stringify(event));
+    },
+    [connection]
+  );
+
   // Message handler for different message types
   const handleAgentMessage = useCallback(
-    (data: AgentEvent, lastMessageId: string | null) => {
+    (data: FpAgentEvent) => {
       switch (data?.type) {
-        case USER_MESSAGE: {
-          const newMessage = createMessage(
-            data.content,
-            "assistant",
-            chatId,
-            lastMessageId
-          );
-          setMessages((prev) => [...prev, newMessage]);
+        case FpAgentEvents.messageAdded: {
+          sendUiEvent(data);
           break;
         }
-        case ASSISTANT_MESSAGE: {
-          setMessages((prev) => [...prev, data.message]);
-          break;
-        }
-        case CHAT_STATE_UPDATE: {
-          const { state, context } = data;
-          console.log("Chat state update:", state, context);
-          // HACK - Type coercion
-          const serverMachineContext = context as unknown as Record<
-            string,
-            unknown
-          >;
-          send({
-            type: "chat.state.update",
-            state,
-            context: serverMachineContext,
+        case FpAgentEvents.messagesList: {
+          const { messages } = data;
+          sendUiEvent({
+            type: FpAgentEvents.messagesList,
+            messages: messages.map((msg) => ({
+              ...msg,
+              pendingId: null,
+              status: "committed" as const,
+            })),
           });
           break;
         }
-        case "chunk": {
-          const { content } = data;
-          console.log("Chunk:", content);
-          send({ type: "chunk", content });
-          break;
-        }
-        case "init.messages": {
-          const { messages } = data;
-          console.log("Initial messages:", messages);
-          setMessages(messages);
+        case FpAgentEvents.messageContentAppended: {
+          sendUiEvent(data);
           break;
         }
         default:
           console.log("Unknown message:", data);
       }
     },
-    [chatId, send]
-  );
-
-  // Sending a message to the agent
-  const sendAgentMessage = useCallback(
-    (content: string, messageType: EventType) => {
-      connection.send(
-        JSON.stringify({
-          type: messageType,
-          content,
-        })
-      );
-    },
-    []
+    [sendUiEvent]
   );
 
   // Add a user message to the UI and send to agent
   const addUserMessage = useCallback(
     (content: string) => {
-      const lastMessageId =
-        messages.length > 0 ? messages[messages.length - 1].id : null;
+      const lastMessageId = getLastMessageId();
 
-      const userMessage = createMessage(content, "user", chatId, lastMessageId);
+      const pendingMessage = createPendingMessage(
+        content,
+        "user",
+        chatId,
+        lastMessageId
+      );
 
-      setMessages((prev) => [...prev, userMessage]);
-      sendAgentMessage(content, USER_MESSAGE);
+      // Update UI optimistically
+      sendUiEvent({
+        type: FpUserEvents.messageAdded,
+        message: pendingMessage,
+      });
 
-      return userMessage.id;
+      // Send to agent
+      sendAgentMessage({
+        type: FpUserEvents.messageAdded,
+        message: pendingMessage,
+        pendingId: pendingMessage.pendingId,
+      });
+
+      return pendingMessage.id;
     },
-    [chatId, messages, sendAgentMessage]
+    [chatId, sendUiEvent, sendAgentMessage, getLastMessageId]
   );
+
+  const cancelCurrentRequest = useCallback(() => {
+    connection.send(JSON.stringify({ type: CANCEL }));
+    sendUiEvent({ type: "cancel" });
+  }, [connection, sendUiEvent]);
 
   const clearMessages = useCallback(() => {
     connection.send(JSON.stringify({ type: "clear.messages" }));
-    setMessages([]);
-  }, []);
-
-  const connection = useAgent({
-    agent: "fp-chat-agent",
-    name: "spec-assistant",
-    onMessage: (message) => {
-      console.log("Agent event received:", message.data);
-      try {
-        const data = JSON.parse(message.data) as AgentEvent;
-        const lastMessageId =
-          messages.length > 0 ? messages[messages.length - 1].id : null;
-        handleAgentMessage(data, lastMessageId);
-      } catch (error) {
-        console.error("Error parsing message:", error);
-      }
-    },
-    onOpen: () => {
-      console.log("Connection established");
-      send({ type: "connected" });
-    },
-    // TODO - Communciate closing the connection
-    onClose: () => console.log("Connection closed"),
-  });
+  }, [connection]);
 
   return {
-    isConnecting,
-    isStreaming,
+    state: uiChatMachineState.value,
+    isInitializing,
+    isAwaitingUserInput,
+    isSavingUserMessage,
+    isLoadingAssistantResponse,
+    isConnectionFailed,
+    isErrorResponse,
     chunksToDisplay,
     messages,
+    error,
     addUserMessage,
+    cancelCurrentRequest,
     clearMessages,
   };
 }

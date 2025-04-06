@@ -15,9 +15,7 @@ export function StreamingMessage({ message }: { message: string }) {
           Assistant
         </span>
       </div>
-      <p className="whitespace-pre-wrap text-sm leading-relaxed">
-        {message}
-      </p>
+      <p className="whitespace-pre-wrap text-sm leading-relaxed">{message}</p>
     </div>
   );
 }

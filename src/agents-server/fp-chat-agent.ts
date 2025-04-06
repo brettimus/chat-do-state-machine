@@ -12,7 +12,7 @@ import {
   type DrizzleSqliteDODatabase,
 } from "drizzle-orm/durable-sqlite";
 import { migrate } from "drizzle-orm/durable-sqlite/migrator";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 // @ts-expect-error - TODO: Add drizzle to the typescript src path
 import migrations from "../../drizzle/migrations.js";
 import {
@@ -23,24 +23,18 @@ import {
 import type { ActorRefFrom } from "xstate";
 import type { chatMachine } from "@/xstate-prototypes/machines/chat";
 import { messagesTable, type MessageSelect } from "../db/schema";
+import {
+  FpAgentEvents,
+  FpUserEvents,
+  type FpAgentEvent,
+  type FpUserEvent,
+  type FpUserMessageAdded,
+} from "@/agents-shared/events";
 
 type CloudflareEnv = Env;
 
-type IncomingMessage = 
-  | { type: "user.message"; content: string }
-  | { type: "clear.messages" };
-
-type OutgoingMessage =
-  | { type: "init.messages"; messages: MessageSelect[] }
-  | { type: "chunk"; content: string }
-  | { type: "assistant.message"; message: MessageSelect }
-  /** NOTE - We broadcast a received user message to all connected clients, except the one that sent it */
-  | { type: "user.message"; content: string }
-  | {
-      type: "chat.state.update";
-      state: ChatMachineStateName;
-      context: ChatMachineStateChangeHandlerPayload;
-    };
+type IncomingMessage = FpUserEvent;
+type OutgoingMessage = FpAgentEvent;
 
 // NOTE - [BUG] Adding the `@Fiber()` decorator will reorder the `super` call, and break initialization,
 //              since super needs to be called before `this` is accessed
@@ -55,6 +49,12 @@ class FpChatAgent extends Agent<CloudflareEnv> {
   db: DrizzleSqliteDODatabase<any>;
 
   private actor: ActorRefFrom<typeof chatMachine>;
+
+  private isStreaming = false;
+  private pendingAssistantMessage: {
+    pendingId: string;
+    content: string;
+  } | null = null;
 
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
@@ -77,7 +77,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
 
     const chat = createChatActor(
       env.OPENAI_API_KEY,
-      undefined,// env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
+      undefined, // env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
       this.handleNewAssistantMessages
@@ -88,7 +88,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     this.actor.start();
   }
 
-  async getMessages() {
+  async listMessages() {
     const messages = await this.db.select().from(messagesTable);
     return messages;
   }
@@ -97,54 +97,144 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     state: ChatMachineStateName,
     context: ChatMachineStateChangeHandlerPayload
   ) => {
-    // console.log("Chat Actor state changed:", state, {
-    //   ...context,
-    //   apiKey: "REDACTED",
-    // });
-    this.#broadcastChatStateUpdate(state, context);
+    // If state changes to something other than processing, end any pending stream
+    if (
+      state !== "ProcessingAiResponse" &&
+      this.isStreaming &&
+      this.pendingAssistantMessage
+    ) {
+      this.finalizePendingAssistantMessage();
+    }
+
+    // TODO - Broadcast relevant state update to all clients
+    // - [ ] `FollowingUp` - To indicate we're going to produce a follow up question
+    // - [ ] `ProcessingAiresponse` - To indicate we can stream content
+    // - [ ] `GeneratingSpec` - To signify start of spec generation
+    // - [ ] `Error` - To signify error
   };
 
-  handleAssistantMessageChunk = (chunks: string[]) => {
-    this.#chunkBroadcaster(chunks);
-  };
+  // TODO - Ideally we should be able to make this a synchronous function,
+  //        but the `storage.get` call is async
+  handleAssistantMessageChunk = async (chunks: string[]) => {
+    if (!this.isStreaming) {
+      // If this is the first chunk, create a pending assistant message
+      this.isStreaming = true;
+      // TODO - Take the pendingId from the frontend
+      const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+      this.pendingAssistantMessage = {
+        pendingId,
+        content: chunks.join(""),
+      };
 
-  async #chunkBroadcaster(chunks: string[]) {
-    const chunkEvent: OutgoingMessage = {
-      type: "chunk",
-      content: chunks.join(""),
-    };
-    this.#broadcastChatMessage(chunkEvent);
-  }
+      // Create a placeholder for the streaming message
+      // TODO - Get `lastMessageId` synchronously
+      const lastMessageId =
+        (await this.storage.get<string | null>("lastMessageId")) || null;
+      const pendingMessage: MessageSelect = {
+        id: "", // Will be filled when saved to DB
+        content: chunks.join(""),
+        chatId: this.chatId,
+        parentMessageId: lastMessageId,
+        sender: "assistant",
+        createdAt: new Date(),
+      };
 
-  handleNewAssistantMessages = async (messages: string[]) => {
-    console.log("New assistant messages:", messages);
-    for (const message of messages) {
-      const savedMessage = await this.saveMessage(message, "assistant");
+      // Broadcast to clients that we're starting to stream content
       this.#broadcastChatMessage({
-        type: "assistant.message",
-        message: savedMessage,
+        type: FpAgentEvents.messageAdded,
+        pendingId,
+        message: pendingMessage,
+      });
+    } else if (this.pendingAssistantMessage) {
+      // Append content to the existing pending message
+      const content = chunks.join("");
+      this.pendingAssistantMessage.content += content;
+
+      // Broadcast the content update
+      this.#broadcastChatMessage({
+        type: FpAgentEvents.messageContentAppended,
+        pendingId: this.pendingAssistantMessage.pendingId,
+        content,
       });
     }
   };
 
-  // TODO - Determine parentMessageId
+  finalizePendingAssistantMessage = async () => {
+    if (!this.pendingAssistantMessage) return;
+
+    // Save the complete message to the database
+    const savedMessage = await this.saveMessage(
+      this.pendingAssistantMessage.content,
+      "assistant"
+    );
+
+    // Broadcast the saved message
+    this.#broadcastChatMessage({
+      type: "agent.message.added",
+      pendingId: this.pendingAssistantMessage.pendingId,
+      message: savedMessage,
+    });
+
+    // Reset streaming state
+    this.isStreaming = false;
+    this.pendingAssistantMessage = null;
+  };
+
+  handleNewAssistantMessages = async (
+    messages: string[],
+    parentMessageId?: string | null
+  ) => {
+    // If we already have a pending message, don't create additional ones
+    if (this.isStreaming && this.pendingAssistantMessage) {
+      return;
+    }
+
+    console.log("New assistant messages:", messages);
+
+    // TODO - Can we do this in a transaction? Does sqlite support that?
+    let lastMessageId: string | null =
+      parentMessageId || (await this.getLastMessageId());
+    for (const message of messages) {
+      const savedMessage = await this.saveMessage(
+        message,
+        "assistant",
+        lastMessageId
+      );
+      this.#broadcastChatMessage({
+        type: FpAgentEvents.messageAdded,
+        pendingId: null,
+        message: savedMessage,
+      });
+      lastMessageId = savedMessage.id;
+    }
+  };
+
   async saveMessage(
     content: string,
     sender: "user" | "assistant",
     parentMessageId: string | null = null
   ) {
     try {
+      // If parentMessageId is not provided, get the last message ID
+      const lastMessageId = parentMessageId || (await this.getLastMessageId());
+
       const result = await this.db
         .insert(messagesTable)
         .values({
           content,
           sender,
           chatId: this.chatId,
-          parentMessageId,
+          parentMessageId: lastMessageId,
         })
         .returning();
 
       console.log("Message saved to database:", result);
+
+      // Store the latest message ID for future reference
+      if (result[0]) {
+        this.storage.put("lastMessageId", result[0].id);
+      }
+
       return result[0];
     } catch (error) {
       console.error("Error saving message to database:", error);
@@ -152,60 +242,105 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     }
   }
 
+  async getLastMessageId(): Promise<string | null> {
+    try {
+      const messages = await this.db
+        .select()
+        .from(messagesTable)
+        .where(eq(messagesTable.chatId, this.chatId))
+        .orderBy(desc(messagesTable.createdAt))
+        .limit(1);
+
+      return messages.length > 0 ? messages[0].id : null;
+    } catch (error) {
+      console.error("Error getting last message ID:", error);
+      return null;
+    }
+  }
+
   async onConnect(connection: Connection, _ctx: ConnectionContext) {
     console.log("Client connected:", connection.id);
-    // super.onConnect(connection, _ctx);
-    console.log("Sending initial messages to client");
-    connection.send(
-      JSON.stringify({
-        type: "init.messages",
-        messages: await this.getMessages(),
-      })
-    );
+    // Send initial messages to the client
+    const messages = await this.listMessages();
+    this.#sendChatMessage(connection, {
+      type: FpAgentEvents.messagesList,
+      messages,
+    });
   }
+
+  handleUserMessageAdded = async (event: FpUserMessageAdded) => {
+    // Save the message to the database
+    const savedMessage = await this.saveMessage(
+      event.message.content,
+      "user",
+      event.message.parentMessageId
+    );
+
+    // Broadcast the message to the client, with the pendingId,
+    // so it can be updated on the frontend
+    this.#broadcastChatMessage({
+      type: "agent.message.added",
+      pendingId: event.pendingId ?? null,
+      message: savedMessage,
+    });
+
+    // Kick off the ai calls
+    this.actor.send({
+      type: "user.message",
+      content: event.message.content,
+    });
+  };
+
+  // TODO - Update this when state machine supports a "clear.messages" event
+  handleClearMessages = async () => {
+    console.log("Clearing all messages for chat:", this.chatId);
+
+    // Delete all messages from the database for this chat
+    await this.db
+      .delete(messagesTable)
+      .where(eq(messagesTable.chatId, this.chatId));
+
+    // Reset the lastMessageId
+    this.storage.delete("lastMessageId");
+
+    // HACK - Reset the actor to clear its internal message history
+    this.#resetActor();
+
+    // Broadcast to all clients that messages were cleared
+    this.#broadcastChatMessage({
+      type: FpAgentEvents.messagesList,
+      messages: [], // Send empty array to clear client-side messages
+    });
+  };
 
   async onMessage(connection: Connection, message: string) {
     const event = JSON.parse(message) as IncomingMessage;
-
-    if (event.type === "user.message") {
-      // Save the message to the database
-      // TODO - Determine parentMessageId
-      await this.saveMessage(event.content, "user");
-
-      // Broadcast the user message to all connectedClients except this one
-      const otherClientsUpdate: OutgoingMessage = {
-        type: "user.message",
-        content: event.content,
-      };
-      this.#broadcastChatMessage(otherClientsUpdate, [connection.id]);
-
-      // Kick off the ai calls
-      this.actor.send({
-        type: "user.message",
-        content: event.content,
-      });
-
-      // TODO:
-      // - [ ] ACK message? (probably unnecessary)
-      // - [x] Send message to actor
-      // - [x] Broadcast all state changes of actor
-      // - [x] Broadcast all `textStream.chunk` events too
-      //
-    } else if (event.type === "clear.messages") {
-      console.log("Clearing all messages for chat:", this.chatId);
-      
-      // Delete all messages from the database for this chat
-      await this.db.delete(messagesTable).where(eq(messagesTable.chatId, this.chatId));
-      
-      // HACK - Reset the actor to clear its internal message history
-      this.#resetActor();
-
-      // Broadcast to all clients that messages were cleared
-      this.#broadcastChatMessage({
-        type: "init.messages",
-        messages: [], // Send empty array to clear client-side messages
-      });
+    switch (event?.type) {
+      case FpUserEvents.messageAdded: {
+        await this.handleUserMessageAdded(event);
+        break;
+      }
+      case FpUserEvents.clearMessages: {
+        await this.handleClearMessages();
+        break;
+      }
+      // TODO - Improve this
+      case FpUserEvents.cancel: {
+        console.log("Cancelling current operation");
+        this.actor.send({ type: "cancel" });
+        // Reset any pending assistant message
+        if (this.isStreaming && this.pendingAssistantMessage) {
+          // HACK - Add a note that this message was cancelled
+          this.pendingAssistantMessage.content += " [cancelled]";
+          // Finalize and save the message
+          await this.finalizePendingAssistantMessage();
+        }
+      }
     }
+  }
+
+  #sendChatMessage(connection: Connection, message: OutgoingMessage) {
+    connection.send(JSON.stringify(message));
   }
 
   // HACK - Until implementing a "clear.messages" event, this is the easiest way to reset the messages
@@ -214,25 +349,13 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     this.actor.stop();
     const chat = createChatActor(
       this.env.OPENAI_API_KEY,
-      undefined,// this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
+      undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
       this.handleNewAssistantMessages
     );
     this.actor = chat.actor;
     this.actor.start();
-  }
-
-  #broadcastChatStateUpdate(
-    state: ChatMachineStateName,
-    payload: ChatMachineStateChangeHandlerPayload
-  ) {
-    const outgoingUpdate: OutgoingMessage = {
-      type: "chat.state.update",
-      state,
-      context: payload,
-    };
-    this.#broadcastChatMessage(outgoingUpdate);
   }
 
   #broadcastChatMessage(message: OutgoingMessage, exclude?: string[]) {
@@ -245,8 +368,6 @@ class FpChatAgent extends Agent<CloudflareEnv> {
   async _migrate() {
     migrate(this.db, migrations);
   }
-
-  // TODO - implement destroy and call parent destroy method as well?
 }
 
 export { FpChatAgent };
