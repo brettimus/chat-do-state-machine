@@ -34,7 +34,7 @@ export const attachmentsTable = sqliteTable("attachments", {
     .notNull(),
   messageId: text("message_id")
     .notNull()
-    .references(() => messagesTable.id),
+    .references(() => messagesTable.id, { onDelete: "cascade" }),
   filename: text("filename").notNull(),
   fileContent: text("file_content").notNull(),
   path: text("path"),

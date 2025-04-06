@@ -15,6 +15,13 @@
       "when": 1743914587946,
       "tag": "0001_open_pestilence",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1743916663455,
+      "tag": "0002_wealthy_mister_sinister",
+      "breakpoints": true
     }
   ]
 }

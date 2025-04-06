@@ -182,20 +182,10 @@ export function FpChatAgentInterface() {
         />
 
         <div className="flex justify-end border-t border-zinc-200 dark:border-zinc-800">
-          {isCancel && (
-            <Button
-              onClick={cancelCurrentRequest}
-              variant="secondary"
-              className="m-2 text-zinc-500"
-            >
-              Cancel
-            </Button>
-          )}
           <Button
             onClick={sendButtonAction}
             variant={isCancel ? "secondary" : "primary"}
             className="m-2 ml-0"
-            disabled={isSendDisabled}
           >
             {sendButtonText}
           </Button>
