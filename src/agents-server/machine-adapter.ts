@@ -20,7 +20,7 @@ export type ChatMachineStateChangeHandlerPayload = Omit<
 
 type ChatActorInputs = {
   apiKey: string;
-  aiProvider: "openai";
+  aiProvider: "openai" | "anthropic";
   aiGatewayUrl: string | undefined;
   messages?: FpMessageBase[];
 };

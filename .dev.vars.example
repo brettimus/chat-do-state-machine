@@ -1,3 +1,4 @@
 OPENAI_API_KEY=sk-proj-1234567890
+ANTHROPIC_API_KEY=ant-....
 # Optional - Cloudflare AI Gateway https://developers.cloudflare.com/ai-gateway/
 # GATEWAY_BASE_URL=https://gateway.ai.cloudflare.com/v1/..

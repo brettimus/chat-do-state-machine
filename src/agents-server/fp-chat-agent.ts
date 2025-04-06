@@ -377,9 +377,11 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     this.actor?.stop();
     const chat = createChatActor(
       {
-        apiKey: this.env.OPENAI_API_KEY,
+        apiKey: this.env.ANTHROPIC_API_KEY,
+        aiProvider: "anthropic",
+        // apiKey: this.env.OPENAI_API_KEY,
+        // aiProvider: "openai",
         messages,
-        aiProvider: "openai",
         aiGatewayUrl: undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       },
       this.handleChatActorStateChange,
