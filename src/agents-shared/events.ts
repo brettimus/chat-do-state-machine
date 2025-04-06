@@ -1,5 +1,5 @@
 import type { MessageSelect } from "../db/schema";
-import type { FpUiMessagePending } from "@/agents-shared/types";
+import type { FpMessageBase, FpUiMessage, FpUiMessagePending } from "./types";
 
 // User events constants
 export const FpUserEvents = {
@@ -11,6 +11,7 @@ export const FpUserEvents = {
 // Agent events constants
 export const FpAgentEvents = {
   messagesList: "agent.messages.list",
+  messageStarted: "agent.message.started",
   messageAdded: "agent.message.added",
   messageContentAppended: "agent.message.content.appended",
 } as const;
@@ -41,11 +42,24 @@ export type FpAgentMessagesList = {
   messages: MessageSelect[];
 };
 
+/**
+ * This event is emitted at the beginning of a series of LLM calls,
+ * in order to communicate to the frontend that
+ * a new assistant message is going to be generated (and receive updates!)
+ *
+ * The pendingId is used to identify the message in the frontend.
+ */
+export type FpAgentMessageStarted = {
+  type: typeof FpAgentEvents.messageStarted;
+  pendingId: string;
+  message: FpUiMessagePending;
+};
+
 export type FpAgentMessageAdded = {
   type: typeof FpAgentEvents.messageAdded;
   /** The pendingId might be null if we added multiple assistant messages in a row */
   pendingId: string | null;
-  message: MessageSelect;
+  message: FpMessageBase;
 };
 
 export type FpAgentMessageContentAppended = {
@@ -56,6 +70,7 @@ export type FpAgentMessageContentAppended = {
 
 export type FpAgentEvent =
   | FpAgentMessagesList
+  | FpAgentMessageStarted
   | FpAgentMessageAdded
   | FpAgentMessageContentAppended;
 

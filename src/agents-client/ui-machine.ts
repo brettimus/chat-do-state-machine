@@ -4,7 +4,10 @@ import {
   FpUserEvents,
   type FpAgentMessagesList,
 } from "@/agents-shared/events";
-import type { FpAgentMessageAdded } from "@/agents-shared/events";
+import type {
+  FpAgentMessageAdded,
+  FpAgentMessageStarted,
+} from "@/agents-shared/events";
 import type { FpAgentMessageContentAppended } from "@/agents-shared/events";
 import type { FpUserCancel, FpUserMessageAdded } from "@/agents-shared/events";
 import type { FpUserClearMessages } from "@/agents-shared/events";
@@ -34,6 +37,7 @@ export type UiChatEvent =
   | FpAgentMessagesList
   | FpAgentMessageAdded
   | FpAgentMessageContentAppended
+  | FpAgentMessageStarted
   | FpUserMessageAdded
   | FpUserClearMessages
   | FpUserCancel
@@ -46,23 +50,6 @@ export const uiChatMachine = setup({
     events: {} as UiChatEvent,
   },
   actions: {
-    // appendChunk: assign({
-    //   chunks: ({ context, event }) => {
-    //     if (event.type === "chunk") {
-    //       return [...context.chunks, event.content];
-    //     }
-    //     return context.chunks;
-    //   },
-    //   currentMessage: ({ context, event }) => {
-    //     if (event.type === "chunk") {
-    //       return context.currentMessage + event.content;
-    //     }
-    //     return context.currentMessage;
-    //   },
-    // }),
-    // clearChunks: assign({
-    //   chunks: () => [],
-    // }),
     clearCurrentMessage: assign({
       currentMessage: () => "",
     }),
@@ -84,6 +71,14 @@ export const uiChatMachine = setup({
           }));
         }
         return [];
+      },
+    }),
+    storePendingMessage: assign({
+      messages: ({ context, event }) => {
+        if (event.type === FpAgentEvents.messageStarted) {
+          return [...context.messages, event.message];
+        }
+        return context.messages;
       },
     }),
     addUserMessage: assign({
@@ -156,8 +151,27 @@ export const uiChatMachine = setup({
     currentMessage: "",
     serverContext: {},
     messages: [],
-    pendingMessages: [],
     unsentMessageQueue: [],
+  },
+  on: {
+    // TODO - Transition to some sort of RetryConnection state
+    //        before freezing the UI.
+    "connection.error": {
+      target: ".ConnectionFailed",
+      actions: "storeError",
+    },
+    "agent.message.started": {
+      actions: "storePendingMessage",
+    },
+    // Having this as a top-level event allows us to...
+    "agent.message.added": {
+      actions: [
+        () => {
+          console.log("[BUBBLING TEST] agent.message.added top-level event");
+        },
+        "updateMessageFromPending",
+      ],
+    },
   },
   states: {
     Initializing: {
@@ -167,10 +181,6 @@ export const uiChatMachine = setup({
         },
         connected: {
           target: "AwaitingUserInput",
-        },
-        "connection.error": {
-          target: "ConnectionFailed",
-          actions: "storeError",
         },
         "user.message.added": {
           actions: "queueUnsendMessage",
@@ -197,13 +207,10 @@ export const uiChatMachine = setup({
         "agent.message.added": {
           actions: "updateMessageFromPending",
           target: "LoadingAssistantResponse",
+          // TODO - Investigate - How does this work with the top-level event?
         },
         cancel: {
           target: "AwaitingUserInput",
-        },
-        "connection.error": {
-          target: "ConnectionFailed",
-          actions: "storeError",
         },
       },
     },
@@ -219,15 +226,7 @@ export const uiChatMachine = setup({
         cancel: {
           target: "AwaitingUserInput",
         },
-        "connection.error": {
-          target: "ConnectionFailed",
-          actions: "storeError",
-        },
       },
-      // exit: [
-      //   "clearChunks",
-      //   "clearCurrentMessage"
-      // ]
     },
     ConnectionFailed: {
       on: {

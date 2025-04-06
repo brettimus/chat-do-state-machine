@@ -30,6 +30,8 @@ import {
   type FpUserEvent,
   type FpUserMessageAdded,
 } from "@/agents-shared/events";
+import { createPendingId } from "@/agents-shared/pending-id.js";
+import type { FpUiMessagePending } from "@/agents-shared/types.js";
 
 type CloudflareEnv = Env;
 
@@ -50,11 +52,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
 
   private actor: ActorRefFrom<typeof chatMachine>;
 
-  private isStreaming = false;
-  private pendingAssistantMessage: {
-    pendingId: string;
-    content: string;
-  } | null = null;
+  private pendingAssistantMessage: FpUiMessagePending | null = null;
 
   constructor(ctx: AgentContext, env: Env) {
     super(ctx, env);
@@ -80,7 +78,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       undefined, // env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
-      this.handleNewAssistantMessages
+      this.handleAssistantMessageStreamEnd
     );
 
     this.actor = chat.actor;
@@ -97,15 +95,6 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     state: ChatMachineStateName,
     context: ChatMachineStateChangeHandlerPayload
   ) => {
-    // If state changes to something other than processing, end any pending stream
-    if (
-      state !== "ProcessingAiResponse" &&
-      this.isStreaming &&
-      this.pendingAssistantMessage
-    ) {
-      this.finalizePendingAssistantMessage();
-    }
-
     // TODO - Broadcast relevant state update to all clients
     // - [ ] `FollowingUp` - To indicate we're going to produce a follow up question
     // - [ ] `ProcessingAiresponse` - To indicate we can stream content
@@ -113,106 +102,79 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     // - [ ] `Error` - To signify error
   };
 
-  // TODO - Ideally we should be able to make this a synchronous function,
-  //        but the `storage.get` call is async
-  handleAssistantMessageChunk = async (chunks: string[]) => {
-    if (!this.isStreaming) {
-      // If this is the first chunk, create a pending assistant message
-      this.isStreaming = true;
-      // TODO - Take the pendingId from the frontend
-      const pendingId = `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-      this.pendingAssistantMessage = {
-        pendingId,
-        content: chunks.join(""),
-      };
+  // IMPROVEMENT - In the future, each chunk should have some sort of traceId associated with it
+  //              This will allow us to match up the chunks with the correct pending message
+  //              As of writing, we assume a single-turn conversation, so this should be fine.
+  handleAssistantMessageChunk = (chunks: string[]) => {
+    const pendingMessage = this.pendingAssistantMessage;
 
-      // Create a placeholder for the streaming message
-      // TODO - Get `lastMessageId` synchronously
-      const lastMessageId =
-        (await this.storage.get<string | null>("lastMessageId")) || null;
-      const pendingMessage: MessageSelect = {
-        id: "", // Will be filled when saved to DB
-        content: chunks.join(""),
-        chatId: this.chatId,
-        parentMessageId: lastMessageId,
-        sender: "assistant",
-        createdAt: new Date(),
-      };
-
-      // Broadcast to clients that we're starting to stream content
-      this.#broadcastChatMessage({
-        type: FpAgentEvents.messageAdded,
-        pendingId,
-        message: pendingMessage,
-      });
-    } else if (this.pendingAssistantMessage) {
-      // Append content to the existing pending message
-      const content = chunks.join("");
-      this.pendingAssistantMessage.content += content;
-
-      // Broadcast the content update
-      this.#broadcastChatMessage({
-        type: FpAgentEvents.messageContentAppended,
-        pendingId: this.pendingAssistantMessage.pendingId,
-        content,
-      });
-    }
-  };
-
-  finalizePendingAssistantMessage = async () => {
-    if (!this.pendingAssistantMessage) return;
-
-    // Save the complete message to the database
-    const savedMessage = await this.saveMessage(
-      this.pendingAssistantMessage.content,
-      "assistant"
-    );
-
-    // Broadcast the saved message
-    this.#broadcastChatMessage({
-      type: "agent.message.added",
-      pendingId: this.pendingAssistantMessage.pendingId,
-      message: savedMessage,
-    });
-
-    // Reset streaming state
-    this.isStreaming = false;
-    this.pendingAssistantMessage = null;
-  };
-
-  handleNewAssistantMessages = async (
-    messages: string[],
-    parentMessageId?: string | null
-  ) => {
-    // If we already have a pending message, don't create additional ones
-    if (this.isStreaming && this.pendingAssistantMessage) {
+    if (!pendingMessage) {
+      console.warn(
+        "Streaming without a pending message - nothing will update!"
+      );
       return;
     }
 
-    console.log("New assistant messages:", messages);
+    // Broadcast chunks to clients
+    this.#broadcastChatMessage({
+      type: FpAgentEvents.messageContentAppended,
+      pendingId: pendingMessage.pendingId,
+      content: chunks.join(""),
+    });
+  };
+
+  /**
+   * This is a callback that gets fired when the chat machine finishes streaming a response
+   */
+  handleAssistantMessageStreamEnd = async (messages: string[]) => {
+    if (!this.pendingAssistantMessage) {
+      console.warn(
+        "[handleAssistantMessageStreamEnd] No pending message to finalize"
+      );
+      return;
+    }
+
+    console.debug(
+      "[handleAssistantMessageStreamEnd] New assistant messages:",
+      messages
+    );
 
     // TODO - Can we do this in a transaction? Does sqlite support that?
+    let pendingId: string | null = this.pendingAssistantMessage.pendingId;
     let lastMessageId: string | null =
-      parentMessageId || (await this.getLastMessageId());
+      this.pendingAssistantMessage.parentMessageId;
+
     for (const message of messages) {
+      // Save the complete message to the database
       const savedMessage = await this.saveMessage(
         message,
         "assistant",
         lastMessageId
       );
+
+      // Broadcast the saved message
       this.#broadcastChatMessage({
-        type: FpAgentEvents.messageAdded,
-        pendingId: null,
+        type: "agent.message.added",
+        pendingId,
         message: savedMessage,
       });
+
+      // HACK - This allows us to only update one pending message
+      // This is confusing, but that's due to the fact that I'm trying to handle
+      // the possibliity of several messages being emitted...
+      // even though I'm not sure that will happen with our current setup
+      pendingId = null;
       lastMessageId = savedMessage.id;
     }
+
+    // Reset the pending message
+    this.pendingAssistantMessage = null;
   };
 
   async saveMessage(
     content: string,
     sender: "user" | "assistant",
-    parentMessageId: string | null = null
+    parentMessageId: string | null
   ) {
     try {
       // If parentMessageId is not provided, get the last message ID
@@ -268,7 +230,10 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     });
   }
 
-  handleUserMessageAdded = async (event: FpUserMessageAdded) => {
+  handleUserMessageAdded = async (
+    connection: Connection,
+    event: FpUserMessageAdded
+  ) => {
     // Save the message to the database
     const savedMessage = await this.saveMessage(
       event.message.content,
@@ -284,12 +249,40 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       message: savedMessage,
     });
 
+    this.#startAiResponse(connection, event, savedMessage.id);
+  };
+
+  #startAiResponse(
+    connection: Connection,
+    event: FpUserMessageAdded,
+    parentMessageId: string
+  ) {
+    // TODO - Improve this!!!
+    //        We are recording the pending assistant message so we can flush it
+    this.pendingAssistantMessage = {
+      id: null,
+      pendingId: createPendingId(parentMessageId),
+      content: "",
+      parentMessageId,
+      chatId: this.chatId,
+      sender: "assistant",
+      status: "pending",
+    };
+
+    // Send the pending message back to the client, so it can be updated
+    // NOTE - We do not broadcast this. We only broadcast the final, committed (or cancelled) message
+    this.#sendChatMessage(connection, {
+      type: FpAgentEvents.messageStarted,
+      pendingId: this.pendingAssistantMessage.pendingId,
+      message: this.pendingAssistantMessage,
+    });
+
     // Kick off the ai calls
     this.actor.send({
       type: "user.message",
       content: event.message.content,
     });
-  };
+  }
 
   // TODO - Update this when state machine supports a "clear.messages" event
   handleClearMessages = async () => {
@@ -317,7 +310,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     const event = JSON.parse(message) as IncomingMessage;
     switch (event?.type) {
       case FpUserEvents.messageAdded: {
-        await this.handleUserMessageAdded(event);
+        await this.handleUserMessageAdded(connection, event);
         break;
       }
       case FpUserEvents.clearMessages: {
@@ -329,11 +322,13 @@ class FpChatAgent extends Agent<CloudflareEnv> {
         console.log("Cancelling current operation");
         this.actor.send({ type: "cancel" });
         // Reset any pending assistant message
-        if (this.isStreaming && this.pendingAssistantMessage) {
+        if (this.pendingAssistantMessage) {
           // HACK - Add a note that this message was cancelled
           this.pendingAssistantMessage.content += " [cancelled]";
-          // Finalize and save the message
-          await this.finalizePendingAssistantMessage();
+          // Finalize and save the cancelled message so it still shows up the history
+          await this.handleAssistantMessageStreamEnd([
+            this.pendingAssistantMessage.content,
+          ]);
         }
       }
     }
@@ -352,7 +347,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
-      this.handleNewAssistantMessages
+      this.handleAssistantMessageStreamEnd
     );
     this.actor = chat.actor;
     this.actor.start();

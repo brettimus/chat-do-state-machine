@@ -148,31 +148,19 @@ export function useFpChatAgent(chatId: string) {
   );
 
   // Message handler for different message types
+  // Right now, just forwards the message to the state machine
   const handleAgentMessage = useCallback(
     (data: FpAgentEvent) => {
       switch (data?.type) {
+        case FpAgentEvents.messagesList:
+        case FpAgentEvents.messageStarted:
+        case FpAgentEvents.messageContentAppended:
         case FpAgentEvents.messageAdded: {
           sendUiEvent(data);
           break;
         }
-        case FpAgentEvents.messagesList: {
-          const { messages } = data;
-          sendUiEvent({
-            type: FpAgentEvents.messagesList,
-            messages: messages.map((msg) => ({
-              ...msg,
-              pendingId: null,
-              status: "committed" as const,
-            })),
-          });
-          break;
-        }
-        case FpAgentEvents.messageContentAppended: {
-          sendUiEvent(data);
-          break;
-        }
         default:
-          console.log("Unknown message:", data);
+          console.warn("[handleAgentMessage] Unknown message:", data);
       }
     },
     [sendUiEvent]
