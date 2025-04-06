@@ -2,7 +2,6 @@ import { useAgent } from "agents/react";
 import { useMachine, useSelector } from "@xstate/react";
 import { useCallback } from "react";
 import type { FpUiMessagePending } from "@/agents-shared/types";
-import { CANCEL } from "./events";
 import { uiChatMachine } from "./ui-machine";
 import type { MessageSelect as FpMessage } from "@/db/schema";
 import {
@@ -10,7 +9,6 @@ import {
   FpUserEvents,
   type FpAgentEvent,
   type FpUserEvent,
-  type FpUserEventType,
 } from "@/agents-shared/events";
 
 // Helper functions
@@ -197,12 +195,14 @@ export function useFpChatAgent(chatId: string) {
   );
 
   const cancelCurrentRequest = useCallback(() => {
-    connection.send(JSON.stringify({ type: CANCEL }));
-    sendUiEvent({ type: "cancel" });
+    const event: FpUserEvent = { type: FpUserEvents.cancel };
+    connection.send(JSON.stringify(event));
+    sendUiEvent({ type: "user.cancel" });
   }, [connection, sendUiEvent]);
 
   const clearMessages = useCallback(() => {
-    connection.send(JSON.stringify({ type: "clear.messages" }));
+    const event: FpUserEvent = { type: FpUserEvents.clearMessages };
+    connection.send(JSON.stringify(event));
   }, [connection]);
 
   return {

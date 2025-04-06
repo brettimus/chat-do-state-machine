@@ -209,7 +209,7 @@ export const uiChatMachine = setup({
           target: "LoadingAssistantResponse",
           // TODO - Investigate - How does this work with the top-level event?
         },
-        cancel: {
+        "user.cancel": {
           target: "AwaitingUserInput",
         },
       },
@@ -223,7 +223,7 @@ export const uiChatMachine = setup({
           target: "AwaitingUserInput",
           actions: "updateMessageFromPending",
         },
-        cancel: {
+        "user.cancel": {
           target: "AwaitingUserInput",
         },
       },

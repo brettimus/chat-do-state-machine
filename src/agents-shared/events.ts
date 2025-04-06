@@ -4,8 +4,8 @@ import type { FpMessageBase, FpUiMessage, FpUiMessagePending } from "./types";
 // User events constants
 export const FpUserEvents = {
   messageAdded: "user.message.added",
-  clearMessages: "clear.messages",
-  cancel: "cancel",
+  clearMessages: "user.clear.messages",
+  cancel: "user.cancel",
 } as const;
 
 // Agent events constants
