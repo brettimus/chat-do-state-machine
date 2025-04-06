@@ -17,4 +17,8 @@ export type FpUiMessagePending = Pick<
   id: string | null;
   pendingId: string;
   status: "pending";
+  // TODO - Figure out how to show pending specs
+  metadata?: {
+    componentType: "spec";
+  };
 };

@@ -21,12 +21,15 @@ export function createChatActor(
   aiGatewayUrl: string | undefined,
   onStateChange: ChatMachineStateChangeHandler,
   onStreamingMessageChunk: (chunks: string[]) => void,
-  onNewAssistantMessages: (message: string[]) => void
+  onNewAssistantMessages: (message: string[]) => void,
+  onSaveSpec: (spec: string) => Promise<void>
 ) {
   const chatActor = createActor(
     chatMachine.provide({
       actors: {
-        saveSpec: fromPromise(async () => {}),
+        saveSpec: fromPromise(async ({ input: { spec } }) => {
+          await onSaveSpec(spec);
+        }),
       },
       actions: {
         handleStreamChunk: (_, { chunk }) => {

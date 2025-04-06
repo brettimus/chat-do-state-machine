@@ -6,6 +6,7 @@ import { useFpChatAgent } from "./useFpChatAgent";
 import { useScrollToBottom } from "./hooks/useScrollToBottom";
 import { LoadingAnimation } from "./components/LoadingAnimation";
 import type { FpUiMessage } from "@/agents-shared/types";
+import { Trash, X } from "@phosphor-icons/react";
 
 // Chat component
 export function FpChatAgentInterface() {
@@ -54,7 +55,7 @@ export function FpChatAgentInterface() {
 
   // Determine button state
   const isCancel = isSavingUserMessage || isLoadingAssistantResponse;
-  const sendButtonText = isCancel ? "Cancel" : "Send Message";
+  const sendButtonText = isCancel ? "Cancel" : "Send";
   const sendButtonAction = isCancel ? cancelCurrentRequest : handleSendMessage;
   const isSendDisabled =
     !inputValue.trim() || isInitializing || isConnectionFailed;
@@ -72,9 +73,23 @@ export function FpChatAgentInterface() {
         "h-[600px]" // Fixed height container
       )}
     >
-      <h2 className="text-2xl font-medium text-zinc-900 dark:text-zinc-50 mb-4 tracking-tight text-center">
-        Conversation
-      </h2>
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-xl font-medium text-zinc-900 dark:text-zinc-50 tracking-tight">
+          Conversation
+        </h2>
+        <button
+          onClick={clearMessages}
+          className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 rounded-md hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+          disabled={
+            isConnectionFailed || isInitializing || allMessages.length === 0
+          }
+          aria-label="Clear chat"
+          title="Clear chat"
+          type="button"
+        >
+          <Trash size={18} />
+        </button>
+      </div>
 
       {/* Connection status banners */}
       {isInitializing && (
@@ -158,24 +173,23 @@ export function FpChatAgentInterface() {
           disabled={isConnectionFailed || isInitializing}
         />
 
-        <div className="flex border-t border-zinc-200 dark:border-zinc-800">
+        <div className="flex justify-end border-t border-zinc-200 dark:border-zinc-800">
+          {isCancel && (
+            <Button
+              onClick={cancelCurrentRequest}
+              variant="secondary"
+              className="m-2 text-zinc-500"
+            >
+              Cancel
+            </Button>
+          )}
           <Button
             onClick={sendButtonAction}
-            variant={isCancel ? "destructive" : "ghost"}
-            className="flex-1 rounded-none"
+            variant={isCancel ? "secondary" : "primary"}
+            className="m-2 ml-0"
             disabled={isSendDisabled}
           >
             {sendButtonText}
-          </Button>
-          <Button
-            onClick={clearMessages}
-            variant="ghost"
-            className="border-l border-zinc-200 dark:border-zinc-800 rounded-none"
-            disabled={
-              isConnectionFailed || isInitializing || allMessages.length === 0
-            }
-          >
-            Clear Chat
           </Button>
         </div>
       </div>

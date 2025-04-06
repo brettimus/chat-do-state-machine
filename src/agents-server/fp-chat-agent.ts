@@ -78,7 +78,8 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       undefined, // env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
-      this.handleAssistantMessageStreamEnd
+      this.handleAssistantMessageStreamEnd,
+      this.handleSaveSpec
     );
 
     this.actor = chat.actor;
@@ -91,10 +92,33 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     return messages;
   }
 
+  handleSaveSpec = async (spec: string) => {
+    // TODO - Save spec as attachment
+    const newMessage = await this.saveMessage(
+      `Created a new spec\n\n${spec}`,
+      "assistant",
+      this.pendingAssistantMessage?.parentMessageId ?? null
+    );
+    this.#broadcastChatMessage({
+      type: "agent.message.added",
+      pendingId: this.pendingAssistantMessage?.pendingId ?? null,
+      message: newMessage,
+    });
+    this.pendingAssistantMessage = null;
+  };
+
   handleChatActorStateChange = (
     state: ChatMachineStateName,
     context: ChatMachineStateChangeHandlerPayload
   ) => {
+    if (state === "GeneratingSpec") {
+      // TODO - Update the pending message to include this update
+      if (this.pendingAssistantMessage) {
+        this.pendingAssistantMessage.metadata = {
+          componentType: "spec",
+        };
+      }
+    }
     // TODO - Broadcast relevant state update to all clients
     // - [ ] `FollowingUp` - To indicate we're going to produce a follow up question
     // - [ ] `ProcessingAiresponse` - To indicate we can stream content
@@ -114,6 +138,8 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       );
       return;
     }
+
+    pendingMessage.content = `${pendingMessage.content}${chunks.join("")}`;
 
     // Broadcast chunks to clients
     this.#broadcastChatMessage({
@@ -347,7 +373,8 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
-      this.handleAssistantMessageStreamEnd
+      this.handleAssistantMessageStreamEnd,
+      this.handleSaveSpec
     );
     this.actor = chat.actor;
     this.actor.start();

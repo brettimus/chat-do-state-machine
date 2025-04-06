@@ -1,51 +1,14 @@
 import { useAgent } from "agents/react";
 import { useMachine, useSelector } from "@xstate/react";
 import { useCallback } from "react";
-import type { FpUiMessagePending } from "@/agents-shared/types";
-import { uiChatMachine } from "./ui-machine";
-import type { MessageSelect as FpMessage } from "@/db/schema";
+import { createPendingMessage } from "@/agents-shared";
 import {
   FpAgentEvents,
   FpUserEvents,
   type FpAgentEvent,
   type FpUserEvent,
 } from "@/agents-shared/events";
-
-// Helper functions
-const createPendingId = () =>
-  `pending-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-
-const createMessageId = () =>
-  `msg-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
-
-const createPendingMessage = (
-  content: string,
-  sender: "user" | "assistant",
-  chatId: string,
-  parentMessageId: string | null
-): FpUiMessagePending => ({
-  id: sender === "user" ? createMessageId() : null,
-  chatId,
-  parentMessageId,
-  content,
-  sender,
-  pendingId: createPendingId(),
-  status: "pending",
-});
-
-const createMessage = (
-  content: string,
-  sender: string,
-  chatId: string,
-  parentId: string | null
-): FpMessage => ({
-  id: createMessageId(),
-  chatId,
-  parentMessageId: parentId,
-  content,
-  sender,
-  createdAt: new Date(),
-});
+import { uiChatMachine } from "./ui-machine";
 
 export function useFpChatAgent(chatId: string) {
   const [
