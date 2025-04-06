@@ -1,17 +1,17 @@
 import { assign, setup, type StateFrom } from "xstate";
-import {
-  FpAgentEvents,
-  FpUserEvents,
-  type FpAgentMessagesList,
-} from "@/agents-shared/events";
+import type { FpUiMessage, FpUiMessagePending } from "@/agents-shared/types";
+import { FpAgentEvents, FpUserEvents } from "@/agents-shared/events";
 import type {
+  FpAgentMessagesList,
   FpAgentMessageAdded,
   FpAgentMessageStarted,
+  FpAgentMessageUpdated,
+  FpUserCancel,
+  FpAgentMessageContentAppended,
+  FpUserMessageAdded,
+  FpUserClearMessages,
+  FpAgentMessageError,
 } from "@/agents-shared/events";
-import type { FpAgentMessageContentAppended } from "@/agents-shared/events";
-import type { FpUserCancel, FpUserMessageAdded } from "@/agents-shared/events";
-import type { FpUserClearMessages } from "@/agents-shared/events";
-import type { FpUiMessage, FpUiMessagePending } from "@/agents-shared/types";
 
 export type ChatState = StateFrom<typeof uiChatMachine>["value"];
 
@@ -39,6 +39,8 @@ export type UiChatEvent =
   | FpAgentMessageContentAppended
   | FpAgentMessageStarted
   | FpUserMessageAdded
+  | FpAgentMessageUpdated
+  | FpAgentMessageError
   | FpUserClearMessages
   | FpUserCancel
   | ConnectedEvent
@@ -89,7 +91,19 @@ export const uiChatMachine = setup({
         return context.messages;
       },
     }),
-    updateMessageFromPending: assign({
+    updatePendingMessage: assign({
+      messages: ({ context, event }) => {
+        if (event.type === FpAgentEvents.messageUpdated) {
+          return context.messages.map((msg) =>
+            msg.pendingId && msg.pendingId === event.pendingId
+              ? event.message
+              : msg
+          );
+        }
+        return context.messages;
+      },
+    }),
+    commitPendingMessage: assign({
       messages: ({ context, event }) => {
         if (event.type === FpAgentEvents.messageAdded) {
           const pendingMessage = context.messages.find(
@@ -163,13 +177,16 @@ export const uiChatMachine = setup({
     "agent.message.started": {
       actions: "storePendingMessage",
     },
+    "agent.message.updated": {
+      actions: "updatePendingMessage",
+    },
     // Having this as a top-level event allows us to...
     "agent.message.added": {
       actions: [
         () => {
           console.log("[BUBBLING TEST] agent.message.added top-level event");
         },
-        "updateMessageFromPending",
+        "commitPendingMessage",
       ],
     },
   },
@@ -196,21 +213,21 @@ export const uiChatMachine = setup({
           target: "SavingUserMessage",
           actions: "addUserMessage",
         },
-        "connection.error": {
-          target: "ConnectionFailed",
-          actions: "storeError",
-        },
       },
     },
     SavingUserMessage: {
       on: {
         "agent.message.added": {
-          actions: "updateMessageFromPending",
+          actions: "commitPendingMessage",
           target: "LoadingAssistantResponse",
           // TODO - Investigate - How does this work with the top-level event?
         },
         "user.cancel": {
           target: "AwaitingUserInput",
+        },
+        "agent.message.error": {
+          target: "ErrorResponse",
+          actions: "storeError",
         },
       },
     },
@@ -221,10 +238,14 @@ export const uiChatMachine = setup({
         },
         "agent.message.added": {
           target: "AwaitingUserInput",
-          actions: "updateMessageFromPending",
+          actions: "commitPendingMessage",
         },
         "user.cancel": {
           target: "AwaitingUserInput",
+        },
+        "agent.message.error": {
+          target: "ErrorResponse",
+          actions: "storeError",
         },
       },
     },
@@ -239,6 +260,7 @@ export const uiChatMachine = setup({
       },
     },
     ErrorResponse: {
+      // TODO - Implement "retry"
       on: {
         "user.message.added": {
           target: "SavingUserMessage",

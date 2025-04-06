@@ -51,6 +51,11 @@ export function useFpChatAgent(chatId: string) {
     state.matches("ErrorResponse")
   );
 
+  const errorMessage = useSelector(
+    uiChatMachineRef,
+    (state) => state.context.error?.message ?? "Unknown error"
+  );
+
   const chunksToDisplay = useSelector(uiChatMachineRef, (state) => {
     if (state.matches("LoadingAssistantResponse")) {
       return state.context?.chunks?.join("") || "";
@@ -116,7 +121,9 @@ export function useFpChatAgent(chatId: string) {
         case FpAgentEvents.messagesList:
         case FpAgentEvents.messageStarted:
         case FpAgentEvents.messageContentAppended:
-        case FpAgentEvents.messageAdded: {
+        case FpAgentEvents.messageAdded:
+        case FpAgentEvents.messageUpdated:
+        case FpAgentEvents.messageError: {
           sendUiEvent(data);
           break;
         }
@@ -176,6 +183,7 @@ export function useFpChatAgent(chatId: string) {
     isLoadingAssistantResponse,
     isConnectionFailed,
     isErrorResponse,
+    errorMessage,
     chunksToDisplay,
     messages,
     error,

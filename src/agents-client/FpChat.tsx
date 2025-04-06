@@ -21,6 +21,7 @@ export function FpChatAgentInterface() {
     isLoadingAssistantResponse,
     isConnectionFailed,
     isErrorResponse,
+    errorMessage,
     chunksToDisplay,
     messages,
     error,
@@ -137,6 +138,13 @@ export function FpChatAgentInterface() {
                 <LoadingAnimation className="py-2" />
               </div>
             )}
+            {isErrorResponse && (
+              <div className="mr-auto">
+                <span className="text-xs bg-red-100 dark:bg-red-900/50 text-red-800 dark:text-red-300 px-1.5 py-0.5 rounded-full">
+                  Error: {errorMessage}
+                </span>
+              </div>
+            )}
           </>
         )}
       </div>
@@ -238,7 +246,7 @@ function MessageItem({ message, isPending }: MessageItemProps) {
         </span>
         {isPending && (
           <span className="text-xs bg-yellow-100 dark:bg-yellow-900/50 text-yellow-800 dark:text-yellow-300 px-1.5 py-0.5 rounded-full">
-            Saving...
+            Thinking...
           </span>
         )}
       </div>

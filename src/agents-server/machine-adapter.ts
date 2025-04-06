@@ -3,6 +3,8 @@ import {
   chatMachine,
   type ChatMachineContext,
 } from "../xstate-prototypes/machines/chat";
+import type { FpMessageBase } from "@/agents-shared/types";
+import { fpMessageToAiMessage } from "./utils";
 
 export type ChatMachineStateName = StateFrom<typeof chatMachine>["value"];
 
@@ -16,9 +18,15 @@ export type ChatMachineStateChangeHandlerPayload = Omit<
   "aiConfig"
 >;
 
+type ChatActorInputs = {
+  apiKey: string;
+  aiProvider: "openai";
+  aiGatewayUrl: string | undefined;
+  messages?: FpMessageBase[];
+};
+
 export function createChatActor(
-  apiKey: string,
-  aiGatewayUrl: string | undefined,
+  inputs: ChatActorInputs,
   onStateChange: ChatMachineStateChangeHandler,
   onStreamingMessageChunk: (chunks: string[]) => void,
   onNewAssistantMessages: (message: string[]) => void,
@@ -64,9 +72,11 @@ export function createChatActor(
     }),
     {
       input: {
-        apiKey,
-        aiProvider: "openai",
-        aiGatewayUrl,
+        apiKey: inputs.apiKey,
+        aiProvider: inputs.aiProvider,
+        aiGatewayUrl: inputs.aiGatewayUrl,
+        messages: inputs.messages?.map(fpMessageToAiMessage),
+        // TODO - Fixme
         cwd: "/",
       },
     }

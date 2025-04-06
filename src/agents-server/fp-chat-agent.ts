@@ -22,7 +22,11 @@ import {
 } from "./machine-adapter";
 import type { ActorRefFrom } from "xstate";
 import type { chatMachine } from "@/xstate-prototypes/machines/chat";
-import { messagesTable, type MessageSelect } from "../db/schema";
+import {
+  attachmentsTable,
+  messagesTable,
+  type MessageSelect,
+} from "../db/schema";
 import {
   FpAgentEvents,
   FpUserEvents,
@@ -31,7 +35,10 @@ import {
   type FpUserMessageAdded,
 } from "@/agents-shared/events";
 import { createPendingId } from "@/agents-shared/pending-id.js";
-import type { FpUiMessagePending } from "@/agents-shared/types.js";
+import type {
+  FpMessageBase,
+  FpUiMessagePending,
+} from "@/agents-shared/types.js";
 
 type CloudflareEnv = Env;
 
@@ -50,6 +57,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
   // biome-ignore lint/suspicious/noExplicitAny: just following the drizzle docs man
   db: DrizzleSqliteDODatabase<any>;
 
+  private initMessages: FpMessageBase[] = [];
   private actor: ActorRefFrom<typeof chatMachine>;
 
   private pendingAssistantMessage: FpUiMessagePending | null = null;
@@ -60,7 +68,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     // HACK - Assumes the Chat-DO is addressed by chatId
     this.chatId = ctx.id.toString();
 
-    // Get Durable Object sqlite set up with drizzle
+    // Get Durable Object sqlite set up with Drizzle
     this.storage = ctx.storage;
     this.db = drizzle(this.storage, { logger: false });
 
@@ -71,25 +79,94 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       await this._migrate();
     });
 
+    // Get the initial messages from the database
+    // we will use this to initialize the chat actor with
+    // our conversation history
+    ctx.blockConcurrencyWhile(async () => {
+      this.initMessages = await this.listMessages();
+    });
+
     // TODO - Rehydrate actor state from DB, if it exists
+    //
+    this.actor = this.#resetActor(this.initMessages);
+  }
 
-    const chat = createChatActor(
-      env.OPENAI_API_KEY,
-      undefined, // env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
-      this.handleChatActorStateChange,
-      this.handleAssistantMessageChunk,
-      this.handleAssistantMessageStreamEnd,
-      this.handleSaveSpec
-    );
-
-    this.actor = chat.actor;
-
-    this.actor.start();
+  async onMessage(connection: Connection, message: string) {
+    const event = JSON.parse(message) as IncomingMessage;
+    switch (event?.type) {
+      case FpUserEvents.messageAdded: {
+        await this.handleUserMessageAdded(connection, event);
+        break;
+      }
+      case FpUserEvents.clearMessages: {
+        await this.handleClearMessages();
+        break;
+      }
+      // TODO - Improve this
+      case FpUserEvents.cancel: {
+        console.log("Cancelling current operation");
+        this.actor.send({ type: "cancel" });
+        // Reset any pending assistant message
+        if (this.pendingAssistantMessage) {
+          // HACK - Add a note that this message was cancelled
+          this.pendingAssistantMessage.content += " [cancelled]";
+          // Finalize and save the cancelled message so it still shows up the history
+          await this.handleAssistantMessageStreamEnd([
+            this.pendingAssistantMessage.content,
+          ]);
+        }
+      }
+    }
   }
 
   async listMessages() {
     const messages = await this.db.select().from(messagesTable);
     return messages;
+  }
+
+  async saveMessage(
+    content: string,
+    sender: "user" | "assistant",
+    parentMessageId: string | null
+  ) {
+    try {
+      // If parentMessageId is not provided, get the last message ID
+      const lastMessageId = parentMessageId || (await this.getLastMessageId());
+
+      const result = await this.db
+        .insert(messagesTable)
+        .values({
+          content,
+          sender,
+          chatId: this.chatId,
+          parentMessageId: lastMessageId,
+        })
+        .returning();
+
+      console.log("Message saved to database:", result);
+
+      return result[0];
+    } catch (error) {
+      console.error("Error saving message to database:", error);
+      throw error;
+    }
+  }
+
+  async saveAttachment(
+    messageId: string,
+    filename: string,
+    fileContent: string
+  ) {
+    const [attachment] = await this.db
+      .insert(attachmentsTable)
+      .values({
+        messageId,
+        fileContent,
+        filename,
+      })
+      .returning();
+
+    return attachment;
   }
 
   handleSaveSpec = async (spec: string) => {
@@ -99,10 +176,18 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       "assistant",
       this.pendingAssistantMessage?.parentMessageId ?? null
     );
+    const attachment = await this.saveAttachment(
+      newMessage.id,
+      "spec.md",
+      spec
+    );
     this.#broadcastChatMessage({
       type: "agent.message.added",
       pendingId: this.pendingAssistantMessage?.pendingId ?? null,
-      message: newMessage,
+      message: {
+        ...newMessage,
+        attachments: [attachment],
+      },
     });
     this.pendingAssistantMessage = null;
   };
@@ -112,18 +197,22 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     context: ChatMachineStateChangeHandlerPayload
   ) => {
     if (state === "GeneratingSpec") {
-      // TODO - Update the pending message to include this update
-      if (this.pendingAssistantMessage) {
-        this.pendingAssistantMessage.metadata = {
-          componentType: "spec",
-        };
-      }
+      this.#handleGeneratingSpec();
+    }
+    if (state === "Error") {
+      const error = context.error;
+      console.error("Error in chat actor:", error);
+      this.#broadcastChatMessage({
+        type: FpAgentEvents.messageError,
+        pendingId: this.pendingAssistantMessage?.pendingId ?? null,
+        error,
+      });
     }
     // TODO - Broadcast relevant state update to all clients
     // - [ ] `FollowingUp` - To indicate we're going to produce a follow up question
     // - [ ] `ProcessingAiresponse` - To indicate we can stream content
-    // - [ ] `GeneratingSpec` - To signify start of spec generation
-    // - [ ] `Error` - To signify error
+    // - [x] `GeneratingSpec` - To signify start of spec generation
+    // - [x] `Error` - To signify error
   };
 
   // IMPROVEMENT - In the future, each chunk should have some sort of traceId associated with it
@@ -196,39 +285,6 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     // Reset the pending message
     this.pendingAssistantMessage = null;
   };
-
-  async saveMessage(
-    content: string,
-    sender: "user" | "assistant",
-    parentMessageId: string | null
-  ) {
-    try {
-      // If parentMessageId is not provided, get the last message ID
-      const lastMessageId = parentMessageId || (await this.getLastMessageId());
-
-      const result = await this.db
-        .insert(messagesTable)
-        .values({
-          content,
-          sender,
-          chatId: this.chatId,
-          parentMessageId: lastMessageId,
-        })
-        .returning();
-
-      console.log("Message saved to database:", result);
-
-      // Store the latest message ID for future reference
-      if (result[0]) {
-        this.storage.put("lastMessageId", result[0].id);
-      }
-
-      return result[0];
-    } catch (error) {
-      console.error("Error saving message to database:", error);
-      throw error;
-    }
-  }
 
   async getLastMessageId(): Promise<string | null> {
     try {
@@ -310,6 +366,26 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     });
   }
 
+  #handleGeneratingSpec() {
+    // HACK - Update the pending message to include a pending attachment
+    if (this.pendingAssistantMessage) {
+      this.pendingAssistantMessage.attachments = [
+        {
+          pendingId: createPendingId(),
+          filename: "spec.md",
+          status: "pending",
+          // TOOD - Fixme
+          messageId: this.pendingAssistantMessage.parentMessageId ?? "",
+        },
+      ];
+      this.#broadcastChatMessage({
+        type: FpAgentEvents.messageUpdated,
+        pendingId: this.pendingAssistantMessage.pendingId,
+        message: this.pendingAssistantMessage,
+      });
+    }
+  }
+
   // TODO - Update this when state machine supports a "clear.messages" event
   handleClearMessages = async () => {
     console.log("Clearing all messages for chat:", this.chatId);
@@ -319,10 +395,11 @@ class FpChatAgent extends Agent<CloudflareEnv> {
       .delete(messagesTable)
       .where(eq(messagesTable.chatId, this.chatId));
 
-    // Reset the lastMessageId
-    this.storage.delete("lastMessageId");
-
     // HACK - Reset the actor to clear its internal message history
+    //        Until implementing a "clear.messages" event (which I'm not sure we want to support?),
+    //        this is the easiest way to reset the messages.
+    //        This will stop/cancel any ongoing generations
+    //
     this.#resetActor();
 
     // Broadcast to all clients that messages were cleared
@@ -332,45 +409,23 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     });
   };
 
-  async onMessage(connection: Connection, message: string) {
-    const event = JSON.parse(message) as IncomingMessage;
-    switch (event?.type) {
-      case FpUserEvents.messageAdded: {
-        await this.handleUserMessageAdded(connection, event);
-        break;
-      }
-      case FpUserEvents.clearMessages: {
-        await this.handleClearMessages();
-        break;
-      }
-      // TODO - Improve this
-      case FpUserEvents.cancel: {
-        console.log("Cancelling current operation");
-        this.actor.send({ type: "cancel" });
-        // Reset any pending assistant message
-        if (this.pendingAssistantMessage) {
-          // HACK - Add a note that this message was cancelled
-          this.pendingAssistantMessage.content += " [cancelled]";
-          // Finalize and save the cancelled message so it still shows up the history
-          await this.handleAssistantMessageStreamEnd([
-            this.pendingAssistantMessage.content,
-          ]);
-        }
-      }
-    }
-  }
-
   #sendChatMessage(connection: Connection, message: OutgoingMessage) {
     connection.send(JSON.stringify(message));
   }
 
-  // HACK - Until implementing a "clear.messages" event, this is the easiest way to reset the messages
-  //        Bug: This will stop any ongoing generations
-  #resetActor() {
-    this.actor.stop();
+  #broadcastChatMessage(message: OutgoingMessage, exclude?: string[]) {
+    this.broadcast(JSON.stringify(message), exclude);
+  }
+
+  #resetActor(messages?: MessageSelect[]) {
+    this.actor?.stop();
     const chat = createChatActor(
-      this.env.OPENAI_API_KEY,
-      undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
+      {
+        apiKey: this.env.OPENAI_API_KEY,
+        messages,
+        aiProvider: "openai",
+        aiGatewayUrl: undefined, // this.env.GATEWAY_BASE_URL, // <-- to add cloudflare ai gateway
+      },
       this.handleChatActorStateChange,
       this.handleAssistantMessageChunk,
       this.handleAssistantMessageStreamEnd,
@@ -378,10 +433,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     );
     this.actor = chat.actor;
     this.actor.start();
-  }
-
-  #broadcastChatMessage(message: OutgoingMessage, exclude?: string[]) {
-    this.broadcast(JSON.stringify(message), exclude);
+    return this.actor;
   }
 
   /**

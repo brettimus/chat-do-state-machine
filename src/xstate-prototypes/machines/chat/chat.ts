@@ -24,6 +24,7 @@ interface ChatMachineInput {
   apiKey: string;
   aiProvider?: FpModelProvider;
   aiGatewayUrl?: string;
+  messages?: Message[];
   cwd: string;
 }
 
@@ -128,7 +129,7 @@ const chatMachine = setup({
       aiProvider: input.aiProvider ?? DEFAULT_AI_PROVIDER,
       aiGatewayUrl: input.aiGatewayUrl,
     },
-    messages: [],
+    messages: input.messages ?? [],
     error: null,
     errorHistory: [],
     cwd: input.cwd,

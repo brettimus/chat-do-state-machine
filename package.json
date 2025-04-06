@@ -6,6 +6,7 @@
   "private": true,
   "scripts": {
     "db:generate": "drizzle-kit generate",
+    "db:studio": "STUDIO_LOCAL_DB=true drizzle-kit studio",
     "start": "vite dev",
     "dev": "npm run start",
     "deploy": "vite build && wrangler deploy",

@@ -22,3 +22,26 @@ export const messagesTable = sqliteTable("messages", {
 
 export type MessageSelect = typeof messagesTable.$inferSelect;
 export type MessageInsert = typeof messagesTable.$inferInsert;
+
+/**
+ * Attachments table stores files attached to messages.
+ * Each attachment belongs to a message and contains file metadata and content.
+ */
+export const attachmentsTable = sqliteTable("attachments", {
+  id: text("id")
+    .primaryKey()
+    .$defaultFn(() => crypto.randomUUID())
+    .notNull(),
+  messageId: text("message_id")
+    .notNull()
+    .references(() => messagesTable.id),
+  filename: text("filename").notNull(),
+  fileContent: text("file_content").notNull(),
+  path: text("path"),
+  createdAt: integer("created_at", { mode: "timestamp" })
+    .notNull()
+    .default(sql`(unixepoch())`),
+});
+
+export type AttachmentSelect = typeof attachmentsTable.$inferSelect;
+export type AttachmentInsert = typeof attachmentsTable.$inferInsert;

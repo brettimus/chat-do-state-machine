@@ -8,6 +8,13 @@
       "when": 1743813805440,
       "tag": "0000_aspiring_rumiko_fujikawa",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1743914587946,
+      "tag": "0001_open_pestilence",
+      "breakpoints": true
     }
   ]
 }

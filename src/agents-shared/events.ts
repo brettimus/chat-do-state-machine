@@ -14,6 +14,8 @@ export const FpAgentEvents = {
   messageStarted: "agent.message.started",
   messageAdded: "agent.message.added",
   messageContentAppended: "agent.message.content.appended",
+  messageUpdated: "agent.message.updated",
+  messageError: "agent.message.error",
 } as const;
 
 export type FpUserMessageAdded = {
@@ -55,6 +57,16 @@ export type FpAgentMessageStarted = {
   message: FpUiMessagePending;
 };
 
+/**
+ * This event is emitted when the assistant message is updated.
+ * This is used to update the pending message in the frontend.
+ */
+export type FpAgentMessageUpdated = {
+  type: typeof FpAgentEvents.messageUpdated;
+  pendingId: string;
+  message: FpUiMessagePending;
+};
+
 export type FpAgentMessageAdded = {
   type: typeof FpAgentEvents.messageAdded;
   /** The pendingId might be null if we added multiple assistant messages in a row */
@@ -68,10 +80,18 @@ export type FpAgentMessageContentAppended = {
   content: string;
 };
 
+export type FpAgentMessageError = {
+  type: typeof FpAgentEvents.messageError;
+  pendingId: string | null;
+  error: unknown;
+};
+
 export type FpAgentEvent =
   | FpAgentMessagesList
   | FpAgentMessageStarted
+  | FpAgentMessageUpdated
+  | FpAgentMessageContentAppended
   | FpAgentMessageAdded
-  | FpAgentMessageContentAppended;
+  | FpAgentMessageError;
 
 export type FpAgentEventType = FpAgentEvent["type"];
