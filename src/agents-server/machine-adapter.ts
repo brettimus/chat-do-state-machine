@@ -91,12 +91,12 @@ export function createChatActor(
     if (previousState && currentState !== previousState) {
       const { aiConfig: _aiConfig, ...payload } = state.context;
       onStateChange(currentState, payload);
-      console.log(
-        "[zzz] State changed to:",
-        currentState,
-        "\n [zzz] --> messages:",
-        state.context.messages
-      );
+      // console.log(
+      //   "[zzz] State changed to:",
+      //   currentState,
+      //   "\n [zzz] --> messages:",
+      //   state.context.messages
+      // );
     }
 
     previousState = currentState;

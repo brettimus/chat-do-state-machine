@@ -27,8 +27,6 @@ export async function routeRequest(
   const model = fromModelProvider(aiProvider, apiKey, aiGatewayUrl);
   const { getSystemPrompt, temperature } = getStrategyForProvider(aiProvider);
 
-  console.log("[aaa] Route request messages:", options.messages);
-
   const { object: classification } = await generateObject({
     model,
     schema: RouteRequestResponseSchema,
@@ -37,8 +35,6 @@ export async function routeRequest(
     temperature,
     abortSignal: signal,
   });
-
-  console.log("[aaa] Route request output:", classification);
 
   return {
     nextStep: classification.nextStep,
