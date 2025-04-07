@@ -5,39 +5,50 @@ import {
   type FpAiConfig,
   type FpModelProvider,
 } from "../../ai";
-import { createUserMessage, pathFromInput } from "../../utils";
+import { createUserMessage } from "../../utils";
 import {
   type AiResponseMessage,
   type AiTextStreamResult,
   aiTextStreamMachine,
 } from "../streaming";
+import type { ChunkEvent } from "../streaming";
 import {
   type RouterResponse,
   askNextQuestionActor,
+  saveFollowUpNoopActor,
   generateSpecActor,
   routeRequestActor,
   saveSpecNoopActor,
 } from "./actors";
-import type { ChunkEvent } from "../streaming";
+import { log } from "@/xstate-prototypes/utils/logging";
 
-interface ChatMachineInput {
+type SpecDetails = {
+  title: string;
+  filename: "spec.md";
+  content: string;
+};
+
+type ChatMachineInput = {
   apiKey: string;
   aiProvider?: FpModelProvider;
   aiGatewayUrl?: string;
   messages?: Message[];
-  cwd: string;
-}
+};
+
+type ChatMachineOutput = {
+  messages: Message[];
+  errors: unknown[];
+  spec: SpecDetails | null;
+};
 
 export interface ChatMachineContext {
   aiConfig: FpAiConfig;
   messages: Message[];
+  followUpMessages: AiResponseMessage[] | null;
   error: unknown | null;
   errorHistory: unknown[];
-  cwd: string;
-  spec: string | null;
-  projectDir: string | null;
-  specLocation: string | null;
-  title: string;
+  spec: SpecDetails | null;
+  /** NOTE - This is only used to make it easier to consume the stream in the CLI */
   streamResponse: AiTextStreamResult | null;
 }
 
@@ -45,16 +56,6 @@ type ChatMachineEvent =
   | { type: "user.message"; content: string }
   | { type: "cancel" }
   | ChunkEvent;
-
-interface ChatMachineOutput {
-  messages: Message[];
-  errorHistory: unknown[];
-  cwd: string;
-  spec: string | null;
-  specLocation: string | null;
-  title: string;
-  projectDir: string;
-}
 
 const chatMachine = setup({
   types: {
@@ -66,6 +67,7 @@ const chatMachine = setup({
   actors: {
     routeRequest: routeRequestActor,
     askNextQuestion: askNextQuestionActor,
+    saveFollowUp: saveFollowUpNoopActor,
     generateSpec: generateSpecActor,
     saveSpec: saveSpecNoopActor,
     processQuestionStream: aiTextStreamMachine,
@@ -88,12 +90,7 @@ const chatMachine = setup({
     handleStreamChunk: (_, _params: { chunk: string }) => {
       // NOTE - `handleStreamChunk` is a noop by default,
       //         but it can be overridden with `.provide`
-    },
-    handleNewAssistantMessages: (
-      _,
-      _params: { responseMessages: AiResponseMessage[] }
-    ) => {
-      // NOTE - This is a noop by default, but it's a good place to add logic to handle new assistant messages via `.provide`
+      //         It's a way to stream responses
     },
     updateAssistantMessages: assign({
       messages: (
@@ -106,6 +103,19 @@ const chatMachine = setup({
         });
       },
       streamResponse: null, // Clear the raw streaming response
+    }),
+    logEmptyFollowUpMessagesWarning: ({ context }) => {
+      if (!context.followUpMessages || !context.followUpMessages?.length) {
+        log("warn", "Follow up messages is empty - nothing will be saved", {
+          followUpMessages: context.followUpMessages,
+        });
+      }
+    },
+    updateFollowUpQuestionMessages: assign({
+      followUpMessages: (_, params: AiResponseMessage[]) => params,
+    }),
+    clearFollowUpMessages: assign({
+      followUpMessages: () => null,
     }),
     recordError: assign({
       error: (_, event: { error: unknown }) => event.error,
@@ -130,14 +140,11 @@ const chatMachine = setup({
       aiGatewayUrl: input.aiGatewayUrl,
     },
     messages: input.messages ?? [],
+    followUpMessages: null,
     error: null,
     errorHistory: [],
-    cwd: input.cwd,
     spec: null,
-    specLocation: null,
-    title: "spec.md",
     streamResponse: null,
-    projectDir: input.cwd,
   }),
   states: {
     AwaitingUserInput: {
@@ -177,7 +184,7 @@ const chatMachine = setup({
             //
             // NOTE - This does not give a type error even if you remove the corresponding state
             // TODO - Look up if we can cause type errors for targeting not-defined states!
-            target: "FollowingUp",
+            target: "InitializingFollowUpQuestion",
             guard: {
               type: "shouldAskFollowUp",
               params: ({ event }) => event.output,
@@ -201,7 +208,7 @@ const chatMachine = setup({
         },
       },
     },
-    FollowingUp: {
+    InitializingFollowUpQuestion: {
       on: {
         cancel: {
           target: "AwaitingUserInput",
@@ -215,7 +222,7 @@ const chatMachine = setup({
           messages: context.messages,
         }),
         onDone: {
-          target: "ProcessingAiResponse",
+          target: "StreamingFollowUpQuestion",
           actions: assign({
             streamResponse: ({ event }) => event.output,
           }),
@@ -229,22 +236,10 @@ const chatMachine = setup({
         },
       },
     },
-    ProcessingAiResponse: {
+    StreamingFollowUpQuestion: {
       on: {
         cancel: {
           target: "AwaitingUserInput",
-          // TODO - Flush message somehow?
-          actions: ({ self }) => {
-            const processQuestionStream =
-              self.getSnapshot().children.processQuestionStream;
-            if (processQuestionStream) {
-              const cancelledActorContext =
-                processQuestionStream.getSnapshot().context;
-              console.log("cancelledActorContext", cancelledActorContext);
-            } else {
-              console.log("no processQuestionStream upon cancellation");
-            }
-          },
         },
         "textStream.chunk": {
           actions: {
@@ -264,7 +259,7 @@ const chatMachine = setup({
           parent: self,
         }),
         onDone: {
-          target: "AwaitingUserInput",
+          target: "SavingFollowUpQuestion",
           actions: [
             {
               type: "updateAssistantMessages",
@@ -275,12 +270,8 @@ const chatMachine = setup({
               },
             },
             {
-              type: "handleNewAssistantMessages",
-              params: ({ event }) => {
-                return {
-                  responseMessages: event.output.responseMessages,
-                };
-              },
+              type: "updateFollowUpQuestionMessages",
+              params: ({ event }) => event.output.responseMessages,
             },
           ],
         },
@@ -290,6 +281,37 @@ const chatMachine = setup({
             type: "recordError",
             params: ({ event }) => ({ error: event.error }),
           },
+        },
+      },
+    },
+    SavingFollowUpQuestion: {
+      entry: [
+        {
+          type: "logEmptyFollowUpMessagesWarning",
+        },
+      ],
+      invoke: {
+        id: "saveFollowUp",
+        src: "saveFollowUp",
+        input: ({ context }) => {
+          return {
+            // HACK - Fallback to [], since strong typing is hard for this kind of state
+            followUpMessages: context.followUpMessages ?? [],
+          };
+        },
+        onDone: {
+          target: "AwaitingUserInput",
+          actions: "clearFollowUpMessages",
+        },
+        onError: {
+          target: "Error",
+          actions: [
+            "clearFollowUpMessages",
+            {
+              type: "recordError",
+              params: ({ event }) => ({ error: event.error }),
+            },
+          ],
         },
       },
     },
@@ -304,8 +326,12 @@ const chatMachine = setup({
         onDone: {
           actions: [
             assign({
-              spec: ({ event }) => event.output.plan,
-              title: ({ event }) => event.output.title,
+              spec: ({ context, event }) => ({
+                ...context.spec,
+                filename: "spec.md",
+                title: event.output.title,
+                content: event.output.plan,
+              }),
             }),
           ],
           target: "SavingSpec",
@@ -325,19 +351,15 @@ const chatMachine = setup({
         src: "saveSpec",
         input: ({ context }) => {
           return {
-            // HACK - We can't strongly type the `plan` here without adding
-            //        a lot of complexity to the onDone handler of the
-            //        savePlan actor
-            spec: context.spec ?? "",
-            specLocation: pathFromInput(context.title, context.cwd),
+            // We can't strongly type the `spec` here without adding
+            // a lot of complexity to the onDone handler of the `savePlan` actor
+            content: context.spec?.content ?? "",
+            filename: context.spec?.filename ?? "spec.md",
+            title: context.spec?.title ?? "spec.md",
           };
         },
         onDone: {
           target: "Done",
-          actions: assign({
-            specLocation: ({ context }) =>
-              pathFromInput(context.title, context.cwd),
-          }),
         },
         onError: {
           target: "Error",
@@ -374,15 +396,9 @@ const chatMachine = setup({
     },
   },
   output: ({ context }) => ({
-    errorHistory: context.errorHistory,
     spec: context.spec,
-    specLocation: context.specLocation,
     messages: context.messages,
-    cwd: context.cwd,
-    // HACK - Default to emptystring
-    // IMPROVEMENT - If missing necessary data, return a different output type
-    projectDir: context.projectDir ?? "",
-    title: context.title,
+    errors: context.errorHistory,
   }),
 });
 

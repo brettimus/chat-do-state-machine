@@ -12,12 +12,14 @@ import {
 export type { RouterResponse };
 export type RouterResponseType = RouterResponse["nextStep"];
 
-export const routeRequestActor = fromPromise<
-  RouterResponse,
-  {
-    aiConfig: FpAiConfig;
-    messages: Message[];
+// Export the input type for the actor to be reused in tests
+export interface RouterActorInput {
+  aiConfig: FpAiConfig;
+  messages: Message[];
+}
+
+export const routeRequestActor = fromPromise<RouterResponse, RouterActorInput>(
+  async ({ input, signal }) => {
+    return routeRequest(input.aiConfig, { messages: input.messages }, signal);
   }
->(async ({ input, signal }) => {
-  return routeRequest(input.aiConfig, { messages: input.messages }, signal);
-});
+);

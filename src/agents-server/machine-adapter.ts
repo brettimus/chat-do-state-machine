@@ -2,7 +2,12 @@ import { createActor, fromPromise, type StateFrom } from "xstate";
 import {
   chatMachine,
   type ChatMachineContext,
+  type SaveFollowUpActorInput,
+  type SaveSpecActorInput,
 } from "../xstate-prototypes/machines/chat";
+// Uncomment this to test out with ollama
+//
+// import { localChatMachine as chatMachine } from "@/xstate-prototypes/adapters";
 import type { FpMessageBase } from "@/agents-shared/types";
 import { fpMessageToAiMessage } from "./utils";
 
@@ -35,38 +40,40 @@ export function createChatActor(
   const chatActor = createActor(
     chatMachine.provide({
       actors: {
-        saveSpec: fromPromise(async ({ input: { spec } }) => {
-          await onSaveSpec(spec);
+        saveSpec: fromPromise<void, SaveSpecActorInput>(async ({ input }) => {
+          await onSaveSpec(input.content);
         }),
+        saveFollowUp: fromPromise<void, SaveFollowUpActorInput>(
+          async ({ input }) => {
+            onNewAssistantMessages(
+              input.followUpMessages.map((m) => {
+                console.log("New assistant message:", m);
+                if (m.role === "assistant") {
+                  // Handle case where the content is a string
+                  if (typeof m.content === "string") {
+                    return m.content;
+                  }
+                  // Handle the case where the content is an array of text parts
+                  const text = m.content
+                    .map((c) => (c.type === "text" ? c.text : []))
+                    .join("");
+
+                  // NOTE - We're not handling the case where the content is an array of reasoning parts, images, tool calls, etc
+                  //        Since as of writing, our ai call should only have text based responses
+                  return text;
+                }
+
+                // NOTE - We're not handling the case where the role is "tool"
+                //        Since as of writing, our ai call does NOT use tools
+                return "TODO";
+              })
+            );
+          }
+        ),
       },
       actions: {
         handleStreamChunk: (_, { chunk }) => {
           onStreamingMessageChunk([chunk]);
-        },
-        handleNewAssistantMessages: (_, _params) => {
-          onNewAssistantMessages(
-            _params.responseMessages.map((m) => {
-              console.log("New assistant message:", m);
-              if (m.role === "assistant") {
-                // Handle case where the content is a string
-                if (typeof m.content === "string") {
-                  return m.content;
-                }
-                // Handle the case where the content is an array of text parts
-                const text = m.content
-                  .map((c) => (c.type === "text" ? c.text : []))
-                  .join("");
-
-                // NOTE - We're not handling the case where the content is an array of reasoning parts, images, tool calls, etc
-                //        Since as of writing, our ai call should only have text based responses
-                return text;
-              }
-
-              // NOTE - We're not handling the case where the role is "tool"
-              //        Since as of writing, our ai call does NOT use tools
-              return "TODO";
-            })
-          );
         },
       },
     }),
@@ -76,8 +83,6 @@ export function createChatActor(
         aiProvider: inputs.aiProvider,
         aiGatewayUrl: inputs.aiGatewayUrl,
         messages: inputs.messages?.map(fpMessageToAiMessage),
-        // TODO - Fixme
-        cwd: "/",
       },
     }
   );

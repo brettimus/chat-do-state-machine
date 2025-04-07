@@ -1,1 +1,1 @@
-// export { ChatCliAdapter, SpectacularCliAdapter } from "./cli";
+export { localChatMachine, localDbSchemaCodegenMachine } from "./local";

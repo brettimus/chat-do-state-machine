@@ -180,7 +180,7 @@ class FpChatAgent extends Agent<CloudflareEnv> {
     }
     // TODO - Broadcast relevant state update to all clients
     // - [ ] `FollowingUp` - To indicate we're going to produce a follow up question
-    // - [ ] `ProcessingAiresponse` - To indicate we can stream content
+    // - [ ] `StreamingFollowUpQuestion` - To indicate we can stream content
     // - [x] `GeneratingSpec` - To signify start of spec generation
     // - [x] `Error` - To signify error
   };

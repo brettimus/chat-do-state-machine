@@ -1,18 +1,31 @@
+import type { LanguageModelV1 } from "ai";
+import type { Ai } from "@cloudflare/workers-types";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import type { LanguageModelV1 } from "ai";
-import { traceAISDKModel } from "evalite/ai-sdk";
+import { createWorkersAI } from "workers-ai-provider";
 import { ollama } from "ollama-ai-provider";
+import { traceAISDKModel } from "evalite/ai-sdk";
+
 import type {
   AnthropicModelName,
   FpAiModelFactoryOptions,
-  FpModelDetails,
   OllamaModelName,
   OpenAiModelName,
+  CloudflareModelName,
+  CloudflareModelDetails,
 } from "./types";
+
+// Create new type for Cloudflare options
+export type CloudflareAiModelFactoryOptions = {
+  aiBinding: Ai;
+  modelDetails: CloudflareModelDetails;
+  aiGatewayId?: string;
+};
 
 /**
  * Create an ai-sdk {@link LanguageModelV1} from a model details object
+ *
+ * @TODO - Add support for Workers AI (not yet implemented)
  *
  * This function will also wrap the model in an evalite {@link traceAISDKModel}
  * to enable tracing of the model calls during evals.
@@ -20,38 +33,57 @@ import type {
  * Tracing is a noop in production.
  */
 export function aiModelFactory(
-  options: FpAiModelFactoryOptions
+  options: FpAiModelFactoryOptions | CloudflareAiModelFactoryOptions
 ): LanguageModelV1 {
-  const { apiKey, modelDetails, aiGatewayUrl } = options;
-  const model = fromModelDetails(apiKey, modelDetails, aiGatewayUrl);
+  // Handle Cloudflare Worker Ai config
+  if (
+    "aiBinding" in options &&
+    options.modelDetails.modelProvider === "cloudflare"
+  ) {
+    throw new Error("Not yet implemented");
+    // const { aiBinding, modelDetails, aiGatewayId } = options;
+    // const model = fromCloudflareModelName(
+    //   aiBinding,
+    //   modelDetails.modelName,
+    //   aiGatewayId,
+    // );
+    // return traceAISDKModel(model);
+  }
 
-  return traceAISDKModel(model);
-}
+  // Handle other providers
+  const { apiKey, modelDetails, aiGatewayUrl } =
+    options as FpAiModelFactoryOptions;
+  let model: LanguageModelV1;
 
-function fromModelDetails(
-  apiKey: string,
-  modelDetails: FpModelDetails,
-  aiGatewayUrl?: string
-): LanguageModelV1 {
-  const { modelProvider, modelName } = modelDetails;
-  switch (modelProvider) {
+  switch (modelDetails.modelProvider) {
     case "openai": {
-      return fromOpenAiModelName(
+      model = fromOpenAiModelName(
         apiKey,
-        modelName,
+        modelDetails.modelName,
         modelDetails.responsesApi,
         aiGatewayUrl
       );
+      break;
     }
     case "anthropic": {
-      return fromAnthropicModelName(apiKey, modelName, aiGatewayUrl);
+      model = fromAnthropicModelName(
+        apiKey,
+        modelDetails.modelName,
+        aiGatewayUrl
+      );
+      break;
     }
     case "ollama": {
-      return fromOllamaModelName(modelName);
+      model = fromOllamaModelName(modelDetails.modelName);
+      break;
     }
     default:
-      throw new Error(`Unsupported model: ${modelProvider}:${modelName}`);
+      throw new Error(
+        `Unsupported model: ${modelDetails.modelProvider}:${modelDetails.modelName}`
+      );
   }
+
+  return traceAISDKModel(model);
 }
 
 function fromOpenAiModelName(
@@ -79,3 +111,15 @@ function fromAnthropicModelName(
 function fromOllamaModelName(modelName: OllamaModelName): LanguageModelV1 {
   return ollama(modelName);
 }
+
+// function fromCloudflareModelName(
+//   binding: Ai,
+//   modelName: CloudflareModelName,
+//   aiGatewayId?: string
+// ): LanguageModelV1 {
+//   // TODO -
+//   // Docs: https://developers.cloudflare.com/ai-gateway/providers/workersai/
+//   const gateway = aiGatewayId ? { id: aiGatewayId } : undefined;
+//   const workersAi = createWorkersAI({ binding, gateway });
+//   return workersAi(modelName);
+// }

@@ -119,7 +119,7 @@ When `invoke`ing an actor, it's perfectly fine to use the same name for the `id`
 The `src` just needs to uniquely identify the actor within the state machine. The `name` should be unique for all spawned actors and invoked services.
 
 ```ts
-    FollowingUp: {
+    InitializingFollowUpQuestion: {
       invoke: {
         id: "askNextQuestion",
         src: "askNextQuestion",
