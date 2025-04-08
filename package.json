@@ -46,7 +46,7 @@
     "@ai-sdk/openai": "^1.3.4",
     "@ai-sdk/react": "^1.2.3",
     "@ai-sdk/ui-utils": "^1.2.2",
-    "@fiberplane/agents": "^0.3.4",
+    "@fiberplane/agents": "^0.3.5",
     "@logtape/logtape": "^0.9.0",
     "@phosphor-icons/react": "^2.1.7",
     "@radix-ui/react-avatar": "^1.1.3",

@@ -20,8 +20,8 @@ importers:
         specifier: ^1.2.2
         version: 1.2.5(zod@3.24.2)
       "@fiberplane/agents":
-        specifier: ^0.3.4
-        version: 0.3.4(@cloudflare/workers-types@4.20250404.0)(agents@0.0.46(@cloudflare/workers-types@4.20250404.0))(react@19.1.0)
+        specifier: ^0.3.5
+        version: 0.3.5(@cloudflare/workers-types@4.20250404.0)(agents@0.0.46(@cloudflare/workers-types@4.20250404.0))(react@19.1.0)
       "@logtape/logtape":
         specifier: ^0.9.0
         version: 0.9.0
@@ -1462,10 +1462,10 @@ packages:
         integrity: sha512-44yam5+t1I9v09hWBYO+ezV88+mb9Se2BjgERtzB/68+0mGeTfFkjBeDBe2y+ZdiPpeO2rhevhdnfrBm5mqH+Q==,
       }
 
-  "@fiberplane/agents@0.3.4":
+  "@fiberplane/agents@0.3.5":
     resolution:
       {
-        integrity: sha512-MRptg7LwZL9yhf0q4BU4FnKgfvs8O3FCssx86fT/uIkbncmGNKTraz3+hwYs38syuZvMvxrhilL25AHR6ZcIvw==,
+        integrity: sha512-dAHnKfESngqjaztBGtmGdQqA7TazrgzRnrZYmsu4rjfr/Pn/TNbDsNIfDNpHvAcwdCJS9997SXV7Cwkt1z3Bmg==,
       }
     peerDependencies:
       agents: ^0.0.39
@@ -5681,7 +5681,7 @@ snapshots:
       - bufferutil
       - utf-8-validate
 
-  "@fiberplane/agents@0.3.4(@cloudflare/workers-types@4.20250404.0)(agents@0.0.46(@cloudflare/workers-types@4.20250404.0))(react@19.1.0)":
+  "@fiberplane/agents@0.3.5(@cloudflare/workers-types@4.20250404.0)(agents@0.0.46(@cloudflare/workers-types@4.20250404.0))(react@19.1.0)":
     dependencies:
       "@hono/node-server": 1.14.0(hono@4.7.5)
       "@hono/node-ws": 1.1.1(@hono/node-server@1.14.0(hono@4.7.5))(hono@4.7.5)

@@ -1,6 +1,6 @@
 // Commented out since adding the decorator causes an error (see below)
 //
-// import { Fiber } from "@fiberplane/agents";
+import { Observed } from "@fiberplane/agents";
 import {
   Agent,
   type AgentContext,
@@ -53,7 +53,7 @@ type OutgoingMessage = FpAgentEvent;
 //
 //       ReferenceError:  `Must call super constructor in derived class before accessing 'this' or returning from derived constructor`
 //
-// @Fiber()
+@Observed()
 class FpChatAgent extends Agent<CloudflareEnv> {
   chatId: string;
   storage: DurableObjectStorage;
