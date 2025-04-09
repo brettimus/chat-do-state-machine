@@ -33,8 +33,8 @@ type ChatActorInputs = {
 export function createChatActor(
   inputs: ChatActorInputs,
   onStateChange: ChatMachineStateChangeHandler,
-  onStreamingMessageChunk: (chunks: string[]) => void,
-  onNewAssistantMessages: (message: string[]) => void,
+  onStreamingMessageChunks: (chunks: string[]) => void,
+  onSaveFollowUpQuestion: (message: string[]) => void,
   onSaveSpec: (spec: string) => Promise<void>
 ) {
   const chatActor = createActor(
@@ -45,7 +45,7 @@ export function createChatActor(
         }),
         saveFollowUp: fromPromise<void, SaveFollowUpActorInput>(
           async ({ input }) => {
-            onNewAssistantMessages(
+            onSaveFollowUpQuestion(
               input.followUpMessages.map((m) => {
                 console.log("New assistant message:", m);
                 if (m.role === "assistant") {
@@ -73,7 +73,7 @@ export function createChatActor(
       },
       actions: {
         handleStreamChunk: (_, { chunk }) => {
-          onStreamingMessageChunk([chunk]);
+          onStreamingMessageChunks([chunk]);
         },
       },
     }),
